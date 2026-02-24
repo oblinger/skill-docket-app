@@ -1,0 +1,13 @@
+[package]
+name = "skill-docket-core"
+version = "0.1.0"
+edition = "2021"
+description = "Skill Docket application daemon — orchestration, monitoring, agent lifecycle"
+
+[dependencies]
+skill-docket = { path = "../../skill-docket" }
+cmx-utils = { path = "../../cmx-utils" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+libc = "0.2"

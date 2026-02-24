@@ -1,0 +1,18 @@
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/deps/libskill_docket-cc3ecb9e7ce0d604.rmeta: /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/lib.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/mod.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/frontmatter.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/kv.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/entity.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/merge.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/mod.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/evaluator.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/parser.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/registry.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/types.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/plugin.rs
+
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/deps/libskill_docket-cc3ecb9e7ce0d604.rlib: /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/lib.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/mod.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/frontmatter.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/kv.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/entity.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/merge.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/mod.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/evaluator.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/parser.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/registry.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/types.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/plugin.rs
+
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/deps/skill_docket-cc3ecb9e7ce0d604.d: /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/lib.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/mod.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/frontmatter.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/kv.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/entity.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/merge.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/mod.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/evaluator.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/parser.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/registry.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/types.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/plugin.rs
+
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/lib.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/mod.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/frontmatter.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/kv.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/entity.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/docket/merge.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/mod.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/evaluator.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/parser.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/trigger/registry.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/types.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket/src/plugin.rs:

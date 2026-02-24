@@ -1,0 +1,14 @@
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/deps/libserde-8fc8564439453555.rmeta: /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/build/serde-d2483e831aeed067/out/private.rs
+
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/deps/libserde-8fc8564439453555.rlib: /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/build/serde-d2483e831aeed067/out/private.rs
+
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/deps/serde-8fc8564439453555.d: /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/build/serde-d2483e831aeed067/out/private.rs
+
+/Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/oblinger/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/build/serde-d2483e831aeed067/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/oblinger/ob/kmr/prj/ClaudiMux/skill-docket-app/target/debug/build/serde-d2483e831aeed067/out

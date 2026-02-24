@@ -1,0 +1,23 @@
+# CMX Default Settings
+# This file is the reference for fresh installations.
+
+version: "0.1.0"
+health_check_interval: 5000
+heartbeat_timeout: 30000
+message_timeout: 10000
+snapshot_interval: 60000
+project_root: "."
+ready_prompt_pattern: "\\$\\s*$"
+max_retries: 3
+backoff_strategy: exponential
+ssh_retries: 5
+ssh_backoff:
+  - 1000
+  - 2000
+  - 4000
+  - 8000
+  - 16000
+alert_targets:
+  - pm
+escalation_timeout: 300000
+pool_auto_expand: false
