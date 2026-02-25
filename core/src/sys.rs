@@ -2836,4 +2836,312 @@ mod tests {
         // Not found.
         assert!(resolve_history_entry(&entries, "nonexistent.md").is_err());
     }
+
+    // --- hollow world (Milestone M) ---
+    //
+    // Synthetic E2E tests exercising the full orchestration pipeline:
+    // agent lifecycle, task assignment, inter-agent messaging, state
+    // transitions, interrupts, and role-specific behavior.
+    //
+    // Roles: hw_pilot, hw_pm, hw_builder, hw_checker
+    // Agents: hwp, hwpm, hwb1, hwb2, hwc1
+
+    /// Helper: create the 5 hollow-world agents and return the Sys.
+    fn hw_sys() -> Sys {
+        let mut sys = test_sys();
+        for (role, name) in [
+            ("hw_pilot", "hwp"),
+            ("hw_pm", "hwpm"),
+            ("hw_builder", "hwb1"),
+            ("hw_builder", "hwb2"),
+            ("hw_checker", "hwc1"),
+        ] {
+            let r = sys.execute(Command::AgentNew {
+                role: role.into(),
+                name: Some(name.into()),
+                path: None,
+                agent_type: None,
+            });
+            assert!(is_ok(&r), "Failed to create {}: {}", name, output(&r));
+        }
+        // Drain setup actions so tests start clean
+        sys.drain_actions();
+        sys
+    }
+
+    #[test]
+    fn hw_scenario_1_full_orchestration_chain() {
+        let mut sys = hw_sys();
+
+        // 1. Pilot tells PM: "build widget-alpha"
+        let r = sys.execute(Command::Tell {
+            agent: "hwpm".into(),
+            text: "build widget-alpha".into(),
+        });
+        assert!(is_ok(&r));
+        assert_eq!(sys.data.messages().pending_for("hwpm").len(), 1);
+
+        // 2. PM assigns task T1 to builder hwb1
+        let r = sys.execute(Command::AgentAssign {
+            name: "hwb1".into(),
+            task: "T1".into(),
+        });
+        assert!(is_ok(&r));
+        assert_eq!(sys.data.agents().get("hwb1").unwrap().task.as_deref(), Some("T1"));
+
+        // 3. Builder updates status: "building"
+        let r = sys.execute(Command::AgentStatus {
+            name: "hwb1".into(),
+            notes: Some("building".into()),
+        });
+        assert!(is_ok(&r));
+        assert_eq!(sys.data.agents().get("hwb1").unwrap().status_notes, "building");
+
+        // 4. Builder completes — unassign and update status
+        sys.execute(Command::AgentUnassign { name: "hwb1".into() });
+        sys.execute(Command::AgentStatus {
+            name: "hwb1".into(),
+            notes: Some("done".into()),
+        });
+        assert_eq!(sys.data.agents().get("hwb1").unwrap().task, None);
+
+        // 5. PM assigns check to checker hwc1
+        let r = sys.execute(Command::AgentAssign {
+            name: "hwc1".into(),
+            task: "T1-check".into(),
+        });
+        assert!(is_ok(&r));
+        assert_eq!(sys.data.agents().get("hwc1").unwrap().task.as_deref(), Some("T1-check"));
+
+        // 6. Checker completes
+        sys.execute(Command::AgentUnassign { name: "hwc1".into() });
+        sys.execute(Command::AgentStatus {
+            name: "hwc1".into(),
+            notes: Some("verified".into()),
+        });
+        assert_eq!(sys.data.agents().get("hwc1").unwrap().status_notes, "verified");
+
+        // 7. PM tells pilot: "widget-alpha complete"
+        let r = sys.execute(Command::Tell {
+            agent: "hwp".into(),
+            text: "widget-alpha complete".into(),
+        });
+        assert!(is_ok(&r));
+        assert_eq!(sys.data.messages().pending_for("hwp").len(), 1);
+    }
+
+    #[test]
+    fn hw_scenario_2_parallel_workers() {
+        let mut sys = hw_sys();
+
+        // Assign tasks to two builders simultaneously
+        sys.execute(Command::AgentAssign { name: "hwb1".into(), task: "T2".into() });
+        sys.execute(Command::AgentAssign { name: "hwb2".into(), task: "T3".into() });
+
+        assert_eq!(sys.data.agents().get("hwb1").unwrap().task.as_deref(), Some("T2"));
+        assert_eq!(sys.data.agents().get("hwb2").unwrap().task.as_deref(), Some("T3"));
+
+        // Both update status
+        sys.execute(Command::AgentStatus { name: "hwb1".into(), notes: Some("building".into()) });
+        sys.execute(Command::AgentStatus { name: "hwb2".into(), notes: Some("building".into()) });
+
+        // hwb1 completes first
+        sys.execute(Command::AgentUnassign { name: "hwb1".into() });
+        sys.execute(Command::AgentStatus { name: "hwb1".into(), notes: Some("done".into()) });
+        assert_eq!(sys.data.agents().get("hwb1").unwrap().task, None);
+        // hwb2 still busy
+        assert_eq!(sys.data.agents().get("hwb2").unwrap().task.as_deref(), Some("T3"));
+
+        // hwb2 completes
+        sys.execute(Command::AgentUnassign { name: "hwb2".into() });
+        sys.execute(Command::AgentStatus { name: "hwb2".into(), notes: Some("done".into()) });
+        assert_eq!(sys.data.agents().get("hwb2").unwrap().task, None);
+
+        // Verify both builders listed
+        let r = sys.execute(Command::AgentList { format: None });
+        assert!(output(&r).contains("hwb1"));
+        assert!(output(&r).contains("hwb2"));
+    }
+
+    #[test]
+    fn hw_scenario_3_interrupt_and_recovery() {
+        let mut sys = hw_sys();
+
+        // Assign task to builder
+        sys.execute(Command::AgentAssign { name: "hwb1".into(), task: "T4".into() });
+        sys.execute(Command::AgentStatus { name: "hwb1".into(), notes: Some("building".into()) });
+        sys.drain_actions();
+
+        // Interrupt the builder
+        let r = sys.execute(Command::Interrupt {
+            agent: "hwb1".into(),
+            text: Some("priority change".into()),
+        });
+        assert!(is_ok(&r));
+        // Should generate SendKeys (C-c) + SendKeys (message) actions
+        assert!(sys.pending_actions().len() >= 1);
+        let has_ctrl_c = sys.pending_actions().iter().any(|a| {
+            matches!(a, Action::SendKeys { keys, .. } if keys == "C-c")
+        });
+        assert!(has_ctrl_c, "Interrupt should generate C-c SendKeys action");
+
+        // Builder acknowledges interrupt
+        sys.execute(Command::AgentStatus { name: "hwb1".into(), notes: Some("interrupted".into()) });
+        assert_eq!(sys.data.agents().get("hwb1").unwrap().status_notes, "interrupted");
+
+        // Reassign to new task
+        sys.execute(Command::AgentUnassign { name: "hwb1".into() });
+        sys.execute(Command::AgentAssign { name: "hwb1".into(), task: "T5".into() });
+        sys.execute(Command::AgentStatus { name: "hwb1".into(), notes: Some("building".into()) });
+
+        assert_eq!(sys.data.agents().get("hwb1").unwrap().task.as_deref(), Some("T5"));
+        assert_eq!(sys.data.agents().get("hwb1").unwrap().status_notes, "building");
+    }
+
+    #[test]
+    fn hw_scenario_4_agent_kill_and_restart() {
+        let mut sys = hw_sys();
+
+        // Kill hwb2
+        let r = sys.execute(Command::AgentKill { name: "hwb2".into() });
+        assert!(is_ok(&r));
+        assert!(sys.data.agents().get("hwb2").is_none());
+
+        // Agent list should have 4 agents now
+        assert_eq!(sys.data.agents().list().len(), 4);
+
+        // Recreate hwb2
+        let r = sys.execute(Command::AgentNew {
+            role: "hw_builder".into(),
+            name: Some("hwb2".into()),
+            path: None,
+            agent_type: None,
+        });
+        assert!(is_ok(&r));
+        assert_eq!(sys.data.agents().list().len(), 5);
+
+        // Assign task to the new hwb2 — works normally
+        let r = sys.execute(Command::AgentAssign { name: "hwb2".into(), task: "T6".into() });
+        assert!(is_ok(&r));
+        assert_eq!(sys.data.agents().get("hwb2").unwrap().task.as_deref(), Some("T6"));
+    }
+
+    #[test]
+    fn hw_scenario_5_cross_role_messaging() {
+        let mut sys = hw_sys();
+
+        // Builder tells checker
+        sys.execute(Command::Tell {
+            agent: "hwc1".into(),
+            text: "build artifact ready at /out/widget".into(),
+        });
+
+        // Checker tells PM
+        sys.execute(Command::Tell {
+            agent: "hwpm".into(),
+            text: "check passed for /out/widget".into(),
+        });
+
+        // PM tells pilot
+        sys.execute(Command::Tell {
+            agent: "hwp".into(),
+            text: "widget verified".into(),
+        });
+
+        // Verify message queues
+        assert_eq!(sys.data.messages().pending_for("hwc1").len(), 1);
+        assert_eq!(sys.data.messages().pending_for("hwpm").len(), 1);
+        assert_eq!(sys.data.messages().pending_for("hwp").len(), 1);
+
+        // Verify message content
+        let hwc1_msg = &sys.data.messages().pending_for("hwc1")[0];
+        assert!(hwc1_msg.text.contains("artifact ready"));
+
+        let hwpm_msg = &sys.data.messages().pending_for("hwpm")[0];
+        assert!(hwpm_msg.text.contains("check passed"));
+
+        let hwp_msg = &sys.data.messages().pending_for("hwp")[0];
+        assert!(hwp_msg.text.contains("widget verified"));
+
+        // Verify total pending
+        assert_eq!(sys.data.messages().all_pending().len(), 3);
+    }
+
+    #[test]
+    fn hw_scenario_6_priority_messages() {
+        let mut sys = hw_sys();
+
+        // Send 3 normal messages
+        sys.execute(Command::Tell { agent: "hwb1".into(), text: "normal msg 1".into() });
+        sys.execute(Command::Tell { agent: "hwb1".into(), text: "normal msg 2".into() });
+        sys.execute(Command::Tell { agent: "hwb1".into(), text: "normal msg 3".into() });
+
+        // Verify 3 pending
+        assert_eq!(sys.data.messages().pending_for("hwb1").len(), 3);
+
+        // Verify FIFO ordering — first pending message is "normal msg 1"
+        let pending = sys.data.messages().pending_for("hwb1");
+        assert_eq!(pending[0].text, "normal msg 1");
+        assert_eq!(pending[1].text, "normal msg 2");
+        assert_eq!(pending[2].text, "normal msg 3");
+
+        assert_eq!(sys.data.messages().all_pending().len(), 3);
+    }
+
+    #[test]
+    fn hw_scenario_7_state_machine_walkthrough() {
+        use crate::agent::state::{AgentState, Transition};
+        use crate::agent::lifecycle::LifecycleManager;
+
+        let mut mgr = LifecycleManager::new(3, 30000);
+        let mut t = 1000u64; // simulated clock
+
+        // Register all hollow-world agents
+        for name in ["hwp", "hwpm", "hwb1", "hwb2", "hwc1"] {
+            mgr.register(name).unwrap();
+        }
+        assert_eq!(mgr.available_agents().len(), 0); // All Spawning
+        assert_eq!(mgr.summary().spawning, 5);
+
+        // Spawn-complete all agents
+        for name in ["hwp", "hwpm", "hwb1", "hwb2", "hwc1"] {
+            t += 100;
+            mgr.transition(name, Transition::SpawnComplete, t).unwrap();
+        }
+        assert_eq!(mgr.available_agents().len(), 5); // All Ready
+
+        // Drive hwb1 through full state machine path
+        t += 100;
+        mgr.transition("hwb1", Transition::TaskAssigned { task_id: "T1".into() }, t).unwrap();
+        assert_eq!(mgr.busy_agents().len(), 1);
+        assert!(matches!(mgr.state("hwb1"), Some(AgentState::Busy { .. })));
+
+        // Heartbeat timeout → Stalled
+        t += 100;
+        mgr.transition("hwb1", Transition::HeartbeatTimeout { age_ms: 60000 }, t).unwrap();
+        assert_eq!(mgr.stalled_agents().len(), 1);
+        assert!(matches!(mgr.state("hwb1"), Some(AgentState::Stalled { .. })));
+
+        // Recovery started → Recovering
+        t += 100;
+        mgr.transition("hwb1", Transition::RecoveryStarted, t).unwrap();
+        assert!(matches!(mgr.state("hwb1"), Some(AgentState::Recovering { attempt: 1 })));
+
+        // Recovery succeeded → Ready
+        t += 100;
+        mgr.transition("hwb1", Transition::RecoverySucceeded, t).unwrap();
+        assert!(matches!(mgr.state("hwb1"), Some(AgentState::Ready)));
+        assert!(mgr.available_agents().contains(&"hwb1"));
+
+        // Verify full history recorded
+        let history = mgr.history_for("hwb1");
+        // Spawning→Ready, Ready→Busy, Busy→Stalled, Stalled→Recovering, Recovering→Ready = 5 transitions
+        assert_eq!(history.len(), 5);
+
+        // Verify other agents unaffected
+        assert!(matches!(mgr.state("hwp"), Some(AgentState::Ready)));
+        assert!(matches!(mgr.state("hwpm"), Some(AgentState::Ready)));
+        assert!(matches!(mgr.state("hwb2"), Some(AgentState::Ready)));
+        assert!(matches!(mgr.state("hwc1"), Some(AgentState::Ready)));
+    }
 }
