@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+# demo1 — Full system exercise for Skill Docket + Hollow World
+#
+# Usage: demo1 [--mock|--live|--clean|--help]
+set -euo pipefail
+
+# ── Resolve paths (follow symlinks) ───────────────────────────────
+SOURCE="$0"
+while [[ -L "$SOURCE" ]]; do
+  DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
+SKD_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
+HW_DIR="$SKD_REPO/tests/hollow-world"
+SESSION="Demo1"
+
+# ── Colors ─────────────────────────────────────────────────────────
+bold=$(tput bold 2>/dev/null || true)
+green=$(tput setaf 2 2>/dev/null || true)
+yellow=$(tput setaf 3 2>/dev/null || true)
+red=$(tput setaf 1 2>/dev/null || true)
+reset=$(tput sgr0 2>/dev/null || true)
+
+log()  { echo "${bold}${green}[demo1]${reset} $*"; }
+warn() { echo "${bold}${yellow}[demo1]${reset} $*"; }
+err()  { echo "${bold}${red}[demo1]${reset} $*" >&2; }
+
+# ── Parse args ─────────────────────────────────────────────────────
+MODE="live"
+case "${1:-}" in
+  --mock)  MODE="mock" ;;
+  --live)  MODE="live" ;;
+  --clean) MODE="clean" ;;
+  --help|-h)
+    echo "Usage: demo1 [--mock|--live|--clean|--help]"
+    echo ""
+    echo "  --live   (default) Launch real Claude agents in panes"
+    echo "  --mock   Run with scripted mock agents"
+    echo "  --clean  Tear down Demo1 session and stop daemon"
+    echo "  --help   Show this message"
+    exit 0
+    ;;
+  "")      MODE="live" ;;
+  *)       err "Unknown flag: $1"; exit 1 ;;
+esac
+
+# ── Safely kill a tmux session (switch viewers away first) ────────
+safe_kill_session() {
+  local sess="$1"
+  if tmux has-session -t "$sess" 2>/dev/null; then
+    tmux list-clients -t "$sess" -F '#{client_tty}' 2>/dev/null | while read -r tty; do
+      tmux switch-client -c "$tty" -n 2>/dev/null || true
+    done
+    sleep 0.3
+    tmux kill-session -t "$sess" 2>/dev/null && log "Killed tmux session $sess" || true
+  fi
+}
+
+# ── Clean mode ─────────────────────────────────────────────────────
+cleanup() {
+  log "Cleaning up..."
+  safe_kill_session "$SESSION"
+  skd daemon stop 2>/dev/null && log "Stopped daemon" || true
+  # Remove stale socket/pid
+  local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/skd"
+  rm -f "$config_dir/cmx.sock" "$config_dir/skd.pid" 2>/dev/null || true
+  # Clean up build artifacts from demo
+  rm -f "$HW_DIR"/02_build_component_alpha/alpha.built 2>/dev/null || true
+  rm -f "$HW_DIR"/03_build_component_beta/beta.built 2>/dev/null || true
+  rm -f "$HW_DIR"/04_integration_check/integration.verified 2>/dev/null || true
+  log "Clean complete."
+}
+
+if [[ "$MODE" == "clean" ]]; then
+  cleanup
+  exit 0
+fi
+
+# ── Prerequisites ──────────────────────────────────────────────────
+if ! command -v tmux &>/dev/null; then
+  err "tmux is required but not found"
+  exit 1
+fi
+
+if ! command -v skd &>/dev/null; then
+  warn "skd not in PATH — building..."
+  (cd "$SKD_REPO" && cargo build --release --quiet) || { err "Build failed"; exit 1; }
+  cp "$SKD_REPO/target/release/skd" "$HOME/bin/skd"
+  log "Built and installed skd"
+fi
+
+# ── Cleanup any prior run ─────────────────────────────────────────
+safe_kill_session "$SESSION"
+skd daemon stop 2>/dev/null || true
+rm -f "$HW_DIR"/02_build_component_alpha/alpha.built 2>/dev/null || true
+rm -f "$HW_DIR"/03_build_component_beta/beta.built 2>/dev/null || true
+rm -f "$HW_DIR"/04_integration_check/integration.verified 2>/dev/null || true
+sleep 0.5
+
+# ── Start daemon (auto-started by first skd command) ──────────────
+log "Starting daemon..."
+skd status >/dev/null 2>&1 || { err "Daemon failed to start"; exit 1; }
+log "Daemon running."
+
+# ── Register project + create agents ─────────────────────────────
+log "Registering hollow-world project..."
+skd project add hollow-world "$HW_DIR" || true
+
+log "Scanning project for tasks..."
+skd project scan hollow-world || true
+
+# Agents are auto-created from .skilldocket by project add.
+# Create them only if project add didn't (older binary).
+if ! skd agent list 2>/dev/null | grep -q hwp; then
+  log "Creating agents..."
+  skd agent new pilot --name hwp || true
+  skd agent new pm --name hwpm || true
+  skd agent new builder --name hwb1 || true
+  skd agent new builder --name hwb2 || true
+  skd agent new checker --name hwc1 || true
+fi
+
+log "Verifying setup..."
+skd task list || true
+skd agent list || true
+
+# ── Detect tmux base indices ─────────────────────────────────────
+WIN_BASE=$(tmux show-options -gv base-index 2>/dev/null || echo 0)
+PANE_BASE=$(tmux show-options -gv pane-base-index 2>/dev/null || echo 0)
+W=$WIN_BASE
+P0=$PANE_BASE
+P1=$((PANE_BASE + 1))
+P2=$((PANE_BASE + 2))
+P3=$((PANE_BASE + 3))
+
+# ── Create tmux layout ────────────────────────────────────────────
+# Layout:
+#   top    SKD TUI       (60%)
+#   bot-L  Pilot (hwp)   (33%)
+#   bot-M  Builder1 (hwb1) (33%)
+#   bot-R  Builder2 (hwb2) (33%)
+
+log "Creating tmux session: $SESSION"
+tmux new-session -d -s "$SESSION" -x 200 -y 50
+
+# Split: top 60% / bottom 40%
+tmux split-window -t "$SESSION:$W.$P0" -v -p 40
+
+# Split bottom into 3 columns
+tmux split-window -t "$SESSION:$W.$P1" -h -p 67
+tmux split-window -t "$SESSION:$W.$P2" -h -p 50
+
+# Enable pane border status with titles
+tmux set-option -t "$SESSION" pane-border-status top 2>/dev/null || true
+tmux set-option -t "$SESSION" pane-border-format " #{pane_title} " 2>/dev/null || true
+
+# Set pane titles
+tmux select-pane -t "$SESSION:$W.$P0" -T "SKD TUI"
+tmux select-pane -t "$SESSION:$W.$P1" -T "Pilot (hwp)"
+tmux select-pane -t "$SESSION:$W.$P2" -T "Builder1 (hwb1)"
+tmux select-pane -t "$SESSION:$W.$P3" -T "Builder2 (hwb2)"
+
+# ── Launch TUI ─────────────────────────────────────────────────────
+log "Launching TUI..."
+tmux send-keys -t "$SESSION:$W.$P0" "skd tui" Enter
+
+# Give TUI a moment to start
+sleep 1
+
+# ── Launch agents ──────────────────────────────────────────────────
+MOCK_AGENT="$SCRIPT_DIR/mock-agent.sh"
+
+if [[ "$MODE" == "mock" ]]; then
+  log "Launching mock agents..."
+  tmux send-keys -t "$SESSION:$W.$P1" "$MOCK_AGENT hwp pilot $HW_DIR" Enter
+  tmux send-keys -t "$SESSION:$W.$P2" "$MOCK_AGENT hwb1 builder $HW_DIR" Enter
+  tmux send-keys -t "$SESSION:$W.$P3" "$MOCK_AGENT hwb2 builder $HW_DIR" Enter
+
+  # Headless agents (PM and checker) — run in background
+  log "Starting headless agents (hwpm, hwc1)..."
+  nohup "$MOCK_AGENT" hwpm pm "$HW_DIR" >/tmp/demo1-hwpm.log 2>&1 &
+  nohup "$MOCK_AGENT" hwc1 checker "$HW_DIR" >/tmp/demo1-hwc1.log 2>&1 &
+
+elif [[ "$MODE" == "live" ]]; then
+  log "Launching live Claude agents..."
+
+  # Write system prompts to temp files (avoids shell quoting issues)
+  PROMPT_DIR="$TMPDIR/demo1-prompts"
+  mkdir -p "$PROMPT_DIR"
+
+  write_agent_prompt() {
+    local name="$1" role="$2" skill="$3"
+    cat > "$PROMPT_DIR/$name.txt" <<PROMPT
+You are agent "$name" (role: $role) in the Hollow World demo project.
+Your working directory is $HW_DIR.
+Read your skill instructions in skills/$skill.md — they define your workflow.
+Use skd CLI commands to interact: skd task list, skd tell <agent> <msg>, skd task set <id> status=<status>, skd agent list.
+Task IDs are numeric (1-5): 1=setup infrastructure, 2=build component alpha, 3=build component beta, 4=integration check, 5=final signoff.
+Agent names: hwp (pilot), hwpm (PM), hwb1 (builder), hwb2 (builder), hwc1 (checker).
+Coordinate with other agents via skd tell. Begin by reading your skill file and running skd task list.
+PROMPT
+  }
+
+  # Visible agents in panes
+  for agent_spec in "hwp:pilot:hw-pilot:$P1" "hwb1:builder:hw-builder:$P2" "hwb2:builder:hw-builder:$P3"; do
+    IFS=: read -r name role skill pane <<< "$agent_spec"
+    write_agent_prompt "$name" "$role" "$skill"
+    tmux send-keys -t "$SESSION:$W.$pane" \
+      "cd $HW_DIR && claude --dangerously-skip-permissions --append-system-prompt \"\$(cat $PROMPT_DIR/$name.txt)\" \"Read skills/$skill.md, then run skd task list. Follow your role workflow.\"" Enter
+  done
+
+  # Auto-accept workspace trust prompts (Enter selects "Yes, I trust this folder")
+  sleep 3
+  for pane in $P1 $P2 $P3; do
+    tmux send-keys -t "$SESSION:$W.$pane" Enter
+  done
+
+  # Headless PM and checker — run in print mode in background
+  log "Starting headless agents (hwpm, hwc1)..."
+  for agent_spec in "hwpm:pm:hw-pm" "hwc1:checker:hw-checker"; do
+    IFS=: read -r name role skill <<< "$agent_spec"
+    write_agent_prompt "$name" "$role" "$skill"
+    (cd "$HW_DIR" && claude --dangerously-skip-permissions \
+      --append-system-prompt "$(cat "$PROMPT_DIR/$name.txt")" \
+      -p "Read skills/$skill.md, then run skd task list. Follow your role workflow until all tasks are complete." \
+      > /tmp/demo1-$name.log 2>&1) &
+  done
+fi
+
+# ── Attach ─────────────────────────────────────────────────────────
+tmux select-pane -t "$SESSION:$W.$P0"
+if [[ -n "${TMUX:-}" ]]; then
+  log "Demo1 session ready. Switch to it with: tmux switch-client -t $SESSION"
+else
+  log "Attaching to $SESSION... (Ctrl-b d to detach)"
+  tmux attach-session -t "$SESSION"
+fi

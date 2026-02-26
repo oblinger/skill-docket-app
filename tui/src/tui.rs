@@ -242,8 +242,15 @@ impl Tui {
     // -------------------------------------------------------------------
 
     /// Poll the daemon for fresh agent data.
+    ///
+    /// The daemon uses one-shot connections (accept → handle → close), so
+    /// we open a fresh connection for each request cycle.
     fn refresh_data(&mut self) {
         if let Some(client) = &mut self.client {
+            // Fresh connection each cycle (daemon closes after one response).
+            // Use connect() directly to avoid the consecutive-failure counter
+            // in reconnect() — we always want to try when the daemon is up.
+            let _ = client.connect();
             if let Ok(json) = client.agent_list_json() {
                 if let Ok(agents) = serde_json::from_str::<Vec<Agent>>(&json) {
                     self.agents = agents;
