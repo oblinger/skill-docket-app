@@ -476,6 +476,7 @@ version = "0.1.0"
 dependencies = [
  "cmx-utils",
  "serde_json",
+ "skd-tui",
  "skill-docket-core",
 ]
 

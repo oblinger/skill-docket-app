@@ -35,6 +35,24 @@ fn main() {
 
     let config_dir = resolve_config_dir();
 
+    // Tui is handled directly — launch the terminal UI.
+    if matches!(cmd, Command::Tui) {
+        let socket_path = config_dir.join("cmx.sock");
+        match skd_tui::tui::Tui::new(Some(socket_path.to_string_lossy().into_owned())) {
+            Ok(mut tui) => {
+                if let Err(e) = tui.run() {
+                    eprintln!("skd tui: {}", e);
+                    process::exit(1);
+                }
+            }
+            Err(e) => {
+                eprintln!("skd tui: failed to start: {}", e);
+                process::exit(1);
+            }
+        }
+        return;
+    }
+
     // DaemonRun is handled directly — run the daemon in this process.
     if matches!(cmd, Command::DaemonRun) {
         let pid_path = config_dir.join("skd.pid");

@@ -3,9 +3,9 @@
 //! The help module provides structured help text for the CLI. It supports
 //! three levels of detail:
 //!
-//! 1. **Overview** (`cmx help`) — lists all command groups with summaries
-//! 2. **Group help** (`cmx help agent`) — lists commands within a group
-//! 3. **Command help** (`cmx help agent.new`) — detailed usage for one command
+//! 1. **Overview** (`skd help`) — lists all command groups with summaries
+//! 2. **Group help** (`skd help agent`) — lists commands within a group
+//! 3. **Command help** (`skd help agent.new`) — detailed usage for one command
 
 
 /// Generate help text for a given topic.
@@ -25,7 +25,7 @@ pub fn help_text(topic: Option<&str>) -> String {
             if let Some(text) = group_help(t) {
                 return text;
             }
-            format!("Unknown help topic: '{}'. Run 'cmx help' for a list of commands.", t)
+            format!("Unknown help topic: '{}'. Run 'skd help' for a list of commands.", t)
         }
     }
 }
@@ -34,9 +34,9 @@ pub fn help_text(topic: Option<&str>) -> String {
 /// Top-level overview of all commands.
 fn overview() -> String {
     "\
-cmx — ClaudiMux command-line interface
+skd — Skill Docket command-line interface
 
-Usage: cmx <command> [args...]
+Usage: skd <command> [args...]
 
 Commands:
   status [--json]             Show system summary (agents, tasks, projects)
@@ -118,6 +118,7 @@ Watch command:
 Daemon commands:
   daemon run                       Start daemon in foreground
   daemon stop                      Stop running daemon
+  tui                              Launch terminal UI dashboard
 
 Pool commands:
   pool list                        List all worker pools
@@ -125,8 +126,8 @@ Pool commands:
   pool set <role> <size> [--path]  Create or update a pool
   pool remove <role>               Remove a pool
 
-Run 'cmx help <command>' for detailed help on a specific command.
-Run 'cmx help <group>' for help on a command group (agent, task, config, etc.)."
+Run 'skd help <command>' for detailed help on a specific command.
+Run 'skd help <group>' for help on a command group (agent, task, config, etc.)."
         .into()
 }
 
@@ -393,9 +394,9 @@ Pool commands — manage worker agent pools
 fn command_help(command: &str) -> Option<String> {
     let text = match command {
         "status" => "\
-cmx status — show system summary
+skd status — show system summary
 
-Usage: cmx status [--json]
+Usage: skd status [--json]
 
 Displays a one-line summary of the system state:
   agents: N, tasks: N, projects: N, pending messages: N
@@ -404,36 +405,36 @@ Use --json for machine-readable JSON output.
 No other arguments required.",
 
         "view" => "\
-cmx view — look up an entity by name
+skd view — look up an entity by name
 
-Usage: cmx view <name>
+Usage: skd view <name>
 
 Searches for the given name across agents, tasks, and projects
 (in that order). Returns the first match as pretty-printed JSON.
 
 Examples:
-  cmx view worker1     # show agent details
-  cmx view CMX         # show task details
-  cmx view myproject   # show project details",
+  skd view worker1     # show agent details
+  skd view CMX         # show task details
+  skd view myproject   # show project details",
 
         "help" => "\
-cmx help — show help information
+skd help — show help information
 
-Usage: cmx help [topic]
+Usage: skd help [topic]
 
 With no topic, shows an overview of all available commands.
 With a topic, shows detailed help:
 
-  cmx help              # overview
-  cmx help agent        # all agent commands
-  cmx help agent.new    # detailed help for agent.new
-  cmx help task         # all task commands
-  cmx help config       # all config commands",
+  skd help              # overview
+  skd help agent        # all agent commands
+  skd help agent.new    # detailed help for agent.new
+  skd help task         # all task commands
+  skd help config       # all config commands",
 
         "agent.new" => "\
-cmx agent new — create a new agent
+skd agent new — create a new agent
 
-Usage: cmx agent new <role> [--name <n>] [--path <p>] [--type <t>]
+Usage: skd agent new <role> [--name <n>] [--path <p>] [--type <t>]
 
 Arguments:
   <role>       Role string (e.g. worker, pilot, pm, curator)
@@ -444,60 +445,60 @@ Flags:
   --type <t>   Agent type: claude (default), console, or ssh.
 
 Examples:
-  cmx agent new worker
-  cmx agent new pilot --name my-pilot
-  cmx agent new worker --name w1 --path /projects/cmx --type ssh
+  skd agent new worker
+  skd agent new pilot --name my-pilot
+  skd agent new worker --name w1 --path /projects/skd --type ssh
 
 Side effects:
   Emits a CreateAgent action for infrastructure to spawn the agent.",
 
         "agent.kill" => "\
-cmx agent kill — remove an agent
+skd agent kill — remove an agent
 
-Usage: cmx agent kill <name>
+Usage: skd agent kill <name>
 
 Removes the named agent from the registry and emits a KillAgent action.
 Fails if the agent does not exist.",
 
         "agent.restart" => "\
-cmx agent restart — restart an agent
+skd agent restart — restart an agent
 
-Usage: cmx agent restart <name>
+Usage: skd agent restart <name>
 
 Kills and re-creates the agent with the same role, name, and path.
 Resets status to idle and health to unknown. Emits KillAgent + CreateAgent.",
 
         "agent.assign" => "\
-cmx agent assign — assign an agent to a task
+skd agent assign — assign an agent to a task
 
-Usage: cmx agent assign <name> <task>
+Usage: skd agent assign <name> <task>
 
 Sets the agent's task field and the task's agent field. Also marks
 the task as in_progress. Emits an UpdateAssignment action.",
 
         "agent.unassign" => "\
-cmx agent unassign — remove task assignment
+skd agent unassign — remove task assignment
 
-Usage: cmx agent unassign <name>
+Usage: skd agent unassign <name>
 
 Clears the agent's task field. Also clears the task's agent field
 if one was assigned. Emits an UpdateAssignment action with task=null.",
 
         "agent.status" => "\
-cmx agent status — update status notes
+skd agent status — update status notes
 
-Usage: cmx agent status <name> [notes...]
+Usage: skd agent status <name> [notes...]
 
 Sets the agent's free-text status notes. Multiple words are joined.
 
 Examples:
-  cmx agent status w1 compiling
-  cmx agent status w1 running cargo test",
+  skd agent status w1 compiling
+  skd agent status w1 running cargo test",
 
         "agent.list" => "\
-cmx agent list — list all agents
+skd agent list — list all agents
 
-Usage: cmx agent list [--json]
+Usage: skd agent list [--json]
 
 Displays agents in a table with columns:
   NAME  ROLE  STATUS  HEALTH  TASK
@@ -505,9 +506,9 @@ Displays agents in a table with columns:
 Use --json for JSON array output.",
 
         "task.list" => "\
-cmx task list — list all tasks
+skd task list — list all tasks
 
-Usage: cmx task list [<project>] [--json]
+Usage: skd task list [<project>] [--json]
 
 Lists all tasks in the task tree with indentation for depth.
 Optionally filter by project name prefix.
@@ -517,17 +518,17 @@ Columns: ID  TITLE  STATUS  AGENT
 Use --json for JSON array output.",
 
         "task.get" => "\
-cmx task get — show task details
+skd task get — show task details
 
-Usage: cmx task get <id>
+Usage: skd task get <id>
 
 Returns the task as pretty-printed JSON, including all fields:
 id, title, source, status, result, agent, children, spec_path.",
 
         "task.set" => "\
-cmx task set — update task fields
+skd task set — update task fields
 
-Usage: cmx task set <id> key=value [key=value ...]
+Usage: skd task set <id> key=value [key=value ...]
 
 Update one or more fields on a task.
 
@@ -538,42 +539,42 @@ Supported fields:
   agent    — agent name, or '-' to clear
 
 Examples:
-  cmx task set T1 status=in_progress
-  cmx task set T1 status=completed title=Done result='all tests passed'",
+  skd task set T1 status=in_progress
+  skd task set T1 status=completed title=Done result='all tests passed'",
 
         "task.check" => "\
-cmx task check — mark task completed
+skd task check — mark task completed
 
-Usage: cmx task check <id>
+Usage: skd task check <id>
 
-Shorthand for: cmx task set <id> status=completed",
+Shorthand for: skd task set <id> status=completed",
 
         "task.uncheck" => "\
-cmx task uncheck — mark task pending
+skd task uncheck — mark task pending
 
-Usage: cmx task uncheck <id>
+Usage: skd task uncheck <id>
 
-Shorthand for: cmx task set <id> status=pending",
+Shorthand for: skd task set <id> status=pending",
 
         "config.load" => "\
-cmx config load — load settings from file
+skd config load — load settings from file
 
-Usage: cmx config load [<path>]
+Usage: skd config load [<path>]
 
 Loads settings from a YAML file. If no path is given, defaults to
 <config_dir>/settings.yaml.",
 
         "config.save" => "\
-cmx config save — save settings to file
+skd config save — save settings to file
 
-Usage: cmx config save [<path>]
+Usage: skd config save [<path>]
 
 Saves current runtime settings to a YAML file.",
 
         "config.add" => "\
-cmx config add — set a configuration value
+skd config add — set a configuration value
 
-Usage: cmx config add <key> <value>
+Usage: skd config add <key> <value>
 
 Supported keys: project_root, max_retries, health_check_interval,
 heartbeat_timeout, message_timeout, escalation_timeout.
@@ -581,118 +582,118 @@ heartbeat_timeout, message_timeout, escalation_timeout.
 Numeric keys are validated on parse.",
 
         "config.list" => "\
-cmx config list — show all settings
+skd config list — show all settings
 
-Usage: cmx config list
+Usage: skd config list
 
 Displays all configuration values in YAML format.",
 
         "project.add" => "\
-cmx project add — register a project
+skd project add — register a project
 
-Usage: cmx project add <name> <path>
+Usage: skd project add <name> <path>
 
 Registers a project folder and creates a root task node in the task tree.",
 
         "project.remove" => "\
-cmx project remove — remove a project
+skd project remove — remove a project
 
-Usage: cmx project remove <name>
+Usage: skd project remove <name>
 
 Removes the project from the folder registry. Does not delete files.",
 
         "project.list" => "\
-cmx project list — list projects
+skd project list — list projects
 
-Usage: cmx project list [--json]
+Usage: skd project list [--json]
 
 Displays registered projects with their paths.",
 
         "project.scan" => "\
-cmx project scan — scan project folder
+skd project scan — scan project folder
 
-Usage: cmx project scan <name>
+Usage: skd project scan <name>
 
 Scans the project folder for task subfolders.",
 
         "tell" => "\
-cmx tell — send a message to an agent
+skd tell — send a message to an agent
 
-Usage: cmx tell <agent> <text...>
+Usage: skd tell <agent> <text...>
 
 Queues a message for the agent and emits a SendKeys action to deliver it.
 The agent must exist.",
 
         "interrupt" => "\
-cmx interrupt — interrupt an agent
+skd interrupt — interrupt an agent
 
-Usage: cmx interrupt <agent> [text...]
+Usage: skd interrupt <agent> [text...]
 
 Sends Ctrl-C to the agent. If text is provided, sends it after the interrupt.
 
 Examples:
-  cmx interrupt w1              # just Ctrl-C
-  cmx interrupt w1 stop now     # Ctrl-C then 'stop now'",
+  skd interrupt w1              # just Ctrl-C
+  skd interrupt w1 stop now     # Ctrl-C then 'stop now'",
 
         "layout.row" => "\
-cmx layout row — horizontal split
+skd layout row — horizontal split
 
-Usage: cmx layout row <session> [--percent <n>]
+Usage: skd layout row <session> [--percent <n>]
 
 Splits the session with a horizontal divider. Default split is 50%.",
 
         "layout.column" => "\
-cmx layout column — vertical split
+skd layout column — vertical split
 
-Usage: cmx layout column <session> [--percent <n>]
+Usage: skd layout column <session> [--percent <n>]
 
 Splits the session with a vertical divider. Default split is 50%.",
 
         "layout.merge" => "\
-cmx layout merge — merge panes
+skd layout merge — merge panes
 
-Usage: cmx layout merge <session>
+Usage: skd layout merge <session>
 
 Merges all panes in the session into a single pane.",
 
         "layout.place" => "\
-cmx layout place — place agent in pane
+skd layout place — place agent in pane
 
-Usage: cmx layout place <pane> <agent>
+Usage: skd layout place <pane> <agent>
 
 Places an agent into a specific tmux pane ID (e.g. %3).",
 
         "layout.capture" => "\
-cmx layout capture — capture pane contents
+skd layout capture — capture pane contents
 
-Usage: cmx layout capture <session>
+Usage: skd layout capture <session>
 
 Captures the current content of all panes in the session.",
 
         "layout.session" => "\
-cmx layout session — create tmux session
+skd layout session — create tmux session
 
-Usage: cmx layout session <name> [--cwd <path>]
+Usage: skd layout session <name> [--cwd <path>]
 
 Creates a new tmux session with the given name.",
 
         "client.next" => "\
-cmx client next — switch to next view
+skd client next — switch to next view
 
-Usage: cmx client next",
+Usage: skd client next",
 
         "client.prev" => "\
-cmx client prev — switch to previous view
+skd client prev — switch to previous view
 
-Usage: cmx client prev",
+Usage: skd client prev",
 
 
         // --- Rig commands ---
 
         "rig.init" => "\
-cmx rig init — initialize a remote host
+skd rig init — initialize a remote host
 
-Usage: cmx rig init <host> [--name <n>]
+Usage: skd rig init <host> [--name <n>]
 
 Arguments:
   <host>       SSH host string (e.g. user@host:port or IP address)
@@ -704,61 +705,61 @@ Verifies SSH connectivity and sets up the remote environment for
 use as a worker rig.",
 
         "rig.push" => "\
-cmx rig push — push code to remote
+skd rig push — push code to remote
 
-Usage: cmx rig push <folder> [-r <remote>]
+Usage: skd rig push <folder> [-r <remote>]
 
 Pushes a local folder to the remote host via rsync. Uses the default
 remote unless -r is specified.
 
 Examples:
-  cmx rig push ./src
-  cmx rig push ./project -r gpu1",
+  skd rig push ./src
+  skd rig push ./project -r gpu1",
 
         "rig.pull" => "\
-cmx rig pull — pull results from remote
+skd rig pull — pull results from remote
 
-Usage: cmx rig pull <folder> [-r <remote>]
+Usage: skd rig pull <folder> [-r <remote>]
 
 Pulls a remote folder back to local via rsync. Uses the default
 remote unless -r is specified.",
 
         "rig.status" => "\
-cmx rig status — show remote status
+skd rig status — show remote status
 
-Usage: cmx rig status [-r <remote>]
+Usage: skd rig status [-r <remote>]
 
 Displays the current status of the remote: running tasks, load,
 disk usage, and connectivity state.",
 
         "rig.health" => "\
-cmx rig health — health check remote
+skd rig health — health check remote
 
-Usage: cmx rig health [-r <remote>]
+Usage: skd rig health [-r <remote>]
 
 Performs an SSH connectivity check on the remote. Reports latency
 and connection status.",
 
         "rig.stop" => "\
-cmx rig stop — stop remote operations
+skd rig stop — stop remote operations
 
-Usage: cmx rig stop [-r <remote>]
+Usage: skd rig stop [-r <remote>]
 
 Stops all running operations on the remote host. Sends termination
 signals to active processes.",
 
         "rig.list" => "\
-cmx rig list — list configured remotes
+skd rig list — list configured remotes
 
-Usage: cmx rig list
+Usage: skd rig list
 
 Displays all configured remote hosts with their names, addresses,
 and current status.",
 
         "rig.default" => "\
-cmx rig default — show or set default remote
+skd rig default — show or set default remote
 
-Usage: cmx rig default [<name>]
+Usage: skd rig default [<name>]
 
 With no argument, shows the current default remote name.
 With a name, sets that remote as the default for -r flags.",
@@ -766,43 +767,43 @@ With a name, sets that remote as the default for -r flags.",
         // --- Diagnosis commands ---
 
         "diagnosis.report" => "\
-cmx diagnosis report — generate self-diagnosis report
+skd diagnosis report — generate self-diagnosis report
 
-Usage: cmx diagnosis report
+Usage: skd diagnosis report
 
 Generates a comprehensive report covering signal reliability,
 intervention effectiveness, adaptive threshold health, and
 recent events.",
 
         "diagnosis.reliability" => "\
-cmx diagnosis reliability — signal reliability statistics
+skd diagnosis reliability — signal reliability statistics
 
-Usage: cmx diagnosis reliability [<signal>]
+Usage: skd diagnosis reliability [<signal>]
 
 Shows reliability metrics for heartbeat signals: hit rate, miss rate,
 false-positive rate. Optionally filter to a single signal name.",
 
         "diagnosis.effectiveness" => "\
-cmx diagnosis effectiveness — intervention effectiveness
+skd diagnosis effectiveness — intervention effectiveness
 
-Usage: cmx diagnosis effectiveness [<signal>]
+Usage: skd diagnosis effectiveness [<signal>]
 
 Shows how effective past interventions have been: success rate,
 average recovery time, repeat failure rate. Optionally filter
 by signal or intervention type.",
 
         "diagnosis.thresholds" => "\
-cmx diagnosis thresholds — show adaptive thresholds
+skd diagnosis thresholds — show adaptive thresholds
 
-Usage: cmx diagnosis thresholds
+Usage: skd diagnosis thresholds
 
 Displays all adaptive threshold values, their current settings,
 and recent adjustment history.",
 
         "diagnosis.events" => "\
-cmx diagnosis events — list recent intervention events
+skd diagnosis events — list recent intervention events
 
-Usage: cmx diagnosis events [--limit <n>]
+Usage: skd diagnosis events [--limit <n>]
 
 Lists recent intervention events with timestamps, signal names,
 actions taken, and outcomes. Defaults to the last 20 events.",
@@ -810,56 +811,56 @@ actions taken, and outcomes. Defaults to the last 20 events.",
         // --- History commands ---
 
         "history.list" => "\
-cmx history list — list configuration snapshots
+skd history list — list configuration snapshots
 
-Usage: cmx history list [--limit <n>]
+Usage: skd history list [--limit <n>]
 
 Lists available configuration snapshots with IDs and timestamps.
 Use --limit to control how many are shown.",
 
         "history.show" => "\
-cmx history show — show a snapshot
+skd history show — show a snapshot
 
-Usage: cmx history show <id>
+Usage: skd history show <id>
 
 Displays the full contents of the specified configuration snapshot.",
 
         "history.diff" => "\
-cmx history diff — diff two snapshots
+skd history diff — diff two snapshots
 
-Usage: cmx history diff <from> [<to>]
+Usage: skd history diff <from> [<to>]
 
 Shows differences between two snapshots. If <to> is omitted,
 diffs the snapshot against the current live configuration.",
 
         "history.restore" => "\
-cmx history restore — restore a snapshot
+skd history restore — restore a snapshot
 
-Usage: cmx history restore <id>
+Usage: skd history restore <id>
 
 Restores configuration from a previous snapshot. The current
 configuration is automatically snapshotted before restoration.",
 
         "history.snapshot" => "\
-cmx history snapshot — take a snapshot now
+skd history snapshot — take a snapshot now
 
-Usage: cmx history snapshot
+Usage: skd history snapshot
 
 Takes an immediate snapshot of the current configuration state.",
 
         "history.prune" => "\
-cmx history prune — prune old snapshots
+skd history prune — prune old snapshots
 
-Usage: cmx history prune
+Usage: skd history prune
 
 Removes old snapshots according to the configured retention policy.",
 
         // --- Watch command ---
 
         "watch" => "\
-cmx watch — stream state changes
+skd watch — stream state changes
 
-Usage: cmx watch [--since <ms>] [--timeout <ms>]
+Usage: skd watch [--since <ms>] [--timeout <ms>]
 
 Streams state change events to stdout as newline-delimited JSON.
 
@@ -873,44 +874,53 @@ the stream stays open until interrupted.",
         // --- Daemon commands ---
 
         "daemon.run" => "\
-cmx daemon run — start daemon in foreground
+skd daemon run — start daemon in foreground
 
-Usage: cmx daemon run
+Usage: skd daemon run
 
 Starts the CMX daemon in the foreground. Opens the Unix socket
 at the configured path, begins accepting client connections, and
 runs the convergence loop. Logs to stdout.",
 
         "daemon.stop" => "\
-cmx daemon stop — stop running daemon
+skd daemon stop — stop running daemon
 
-Usage: cmx daemon stop
+Usage: skd daemon stop
 
 Sends a stop command to the running CMX daemon via the Unix socket.
 The daemon finishes in-flight commands and shuts down gracefully.",
 
+        "tui" => "\
+skd tui — launch terminal UI dashboard
+
+Usage: skd tui
+
+Launches the ratatui-based terminal dashboard. Connects to the
+running daemon and displays agents, tasks, and projects with
+live refresh. Press q to quit, ? for help.",
+
         // --- Pool commands ---
 
         "pool.list" => "\
-cmx pool list — list all worker pools
+skd pool list — list all worker pools
 
-Usage: cmx pool list
+Usage: skd pool list
 
 Displays all configured worker pools with their roles, target sizes,
 and current agent counts.",
 
         "pool.status" => "\
-cmx pool status — show pool status for a role
+skd pool status — show pool status for a role
 
-Usage: cmx pool status <role>
+Usage: skd pool status <role>
 
 Shows detailed status for the pool with the given role, including
 individual agent states, assigned tasks, and health.",
 
         "pool.set" => "\
-cmx pool set — create or update a pool
+skd pool set — create or update a pool
 
-Usage: cmx pool set <role> <size> [--path <p>]
+Usage: skd pool set <role> <size> [--path <p>]
 
 Creates a new worker pool or updates an existing one. Sets the target
 number of agents for the given role.
@@ -919,13 +929,13 @@ Flags:
   --path <p>   Working directory for agents in the pool.
 
 Examples:
-  cmx pool set worker 4
-  cmx pool set builder 2 --path /projects/build",
+  skd pool set worker 4
+  skd pool set builder 2 --path /projects/build",
 
         "pool.remove" => "\
-cmx pool remove — remove a pool
+skd pool remove — remove a pool
 
-Usage: cmx pool remove <role>
+Usage: skd pool remove <role>
 
 Removes the worker pool for the given role. All agents in the pool
 are killed.",
@@ -1067,20 +1077,20 @@ mod tests {
     #[test]
     fn command_help_status() {
         let text = help_text(Some("status"));
-        assert!(text.contains("Usage: cmx status"));
+        assert!(text.contains("Usage: skd status"));
         assert!(text.contains("--json"));
     }
 
     #[test]
     fn command_help_view() {
         let text = help_text(Some("view"));
-        assert!(text.contains("Usage: cmx view"));
+        assert!(text.contains("Usage: skd view"));
     }
 
     #[test]
     fn command_help_help() {
         let text = help_text(Some("help"));
-        assert!(text.contains("Usage: cmx help"));
+        assert!(text.contains("Usage: skd help"));
     }
 
     #[test]
@@ -1103,7 +1113,7 @@ mod tests {
             "history.list", "history.show", "history.diff",
             "history.restore", "history.snapshot", "history.prune",
             "watch",
-            "daemon.run", "daemon.stop",
+            "daemon.run", "daemon.stop", "tui",
             "pool.list", "pool.status", "pool.set", "pool.remove",
         ];
         for cmd in commands {

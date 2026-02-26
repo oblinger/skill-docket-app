@@ -11,7 +11,7 @@ use crate::command::Command;
 /// be `["status"]`, not `["cmx", "status"]`).
 pub fn parse_args(args: &[&str]) -> Result<Command, String> {
     if args.is_empty() {
-        return Err("No command specified. Run 'cmx help' for usage.".into());
+        return Err("No command specified. Run 'skd help' for usage.".into());
     }
 
     match args[0] {
@@ -32,6 +32,7 @@ pub fn parse_args(args: &[&str]) -> Result<Command, String> {
         "history" => parse_history(args),
         "daemon" => parse_daemon(args),
         "watch" => parse_watch(args),
+        "tui" => Ok(Command::Tui),
         _ => Err(format!("Unknown command: '{}'", args[0])),
     }
 }

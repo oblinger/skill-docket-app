@@ -9,5 +9,6 @@ path = "src/main.rs"
 
 [dependencies]
 skill-docket-core = { path = "../core" }
+skd-tui = { path = "../tui" }
 cmx-utils = { path = "../../cmx-utils" }
 serde_json = "1"
