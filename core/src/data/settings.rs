@@ -22,6 +22,7 @@ pub fn default_settings() -> Settings {
         escalation_timeout: 300000,
         pool_configs: HashMap::new(),
         pool_auto_expand: false,
+        agent_launch_command: "claude".into(),
     }
 }
 
@@ -193,6 +194,9 @@ fn apply_scalar(s: &mut Settings, key: &str, val: &str) -> Result<(), String> {
                 _ => return Err(format!("invalid bool for pool_auto_expand: {}", val)),
             };
         }
+        "agent_launch_command" => {
+            s.agent_launch_command = unquote(val);
+        }
         _ => {
             // Unknown keys are silently ignored for forward-compatibility
         }
@@ -277,6 +281,7 @@ pub fn serialize(s: &Settings) -> String {
     }
     out.push_str(&format!("escalation_timeout: {}\n", s.escalation_timeout));
     out.push_str(&format!("pool_auto_expand: {}\n", s.pool_auto_expand));
+    out.push_str(&format!("agent_launch_command: \"{}\"\n", s.agent_launch_command));
     // Serialize pool configs as pool.<role>.<field> keys
     let mut roles: Vec<&String> = s.pool_configs.keys().collect();
     roles.sort();

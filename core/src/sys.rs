@@ -167,6 +167,9 @@ impl Sys {
             Command::DaemonRun => Response::Error {
                 message: "DaemonRun must be handled by the binary, not dispatched to Sys".into(),
             },
+            Command::Tui => Response::Error {
+                message: "Tui must be handled by the binary, not dispatched to Sys".into(),
+            },
             Command::DaemonStop => Response::Ok {
                 output: "Daemon shutting down".into(),
             },
@@ -182,6 +185,14 @@ impl Sys {
     /// Take and clear accumulated actions.
     pub fn drain_actions(&mut self) -> Vec<Action> {
         std::mem::take(&mut self.actions)
+    }
+
+    /// Record that an agent's tmux session has been created.
+    pub fn notify_session_created(&mut self, agent_name: &str, session_name: &str) -> Result<(), String> {
+        let agent = self.data.agents_mut().get_mut(agent_name)
+            .ok_or_else(|| format!("agent '{}' not found", agent_name))?;
+        agent.session = Some(session_name.to_string());
+        Ok(())
     }
 
     /// Borrow the data layer (for inspection in tests / external code).
@@ -3143,5 +3154,33 @@ mod tests {
         assert!(matches!(mgr.state("hwpm"), Some(AgentState::Ready)));
         assert!(matches!(mgr.state("hwb2"), Some(AgentState::Ready)));
         assert!(matches!(mgr.state("hwc1"), Some(AgentState::Ready)));
+    }
+
+    // --- notify_session_created ---
+
+    #[test]
+    fn notify_session_created_sets_field() {
+        let mut sys = test_sys();
+        sys.execute(Command::AgentNew {
+            role: "worker".into(),
+            name: Some("w1".into()),
+            path: None,
+            agent_type: None,
+        });
+        assert!(sys.data().agents().get("w1").unwrap().session.is_none());
+
+        sys.notify_session_created("w1", "cmx-w1").unwrap();
+        assert_eq!(
+            sys.data().agents().get("w1").unwrap().session.as_deref(),
+            Some("cmx-w1")
+        );
+    }
+
+    #[test]
+    fn notify_session_created_unknown_agent_errors() {
+        let mut sys = test_sys();
+        let result = sys.notify_session_created("nonexistent", "cmx-nope");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
     }
 }

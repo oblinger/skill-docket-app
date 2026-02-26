@@ -1,3 +1,4 @@
+pub mod bridge;
 pub mod conversation_log;
 pub mod copilot_sync;
 pub mod lifecycle;

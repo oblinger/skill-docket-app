@@ -36,6 +36,12 @@ pub struct Settings {
     pub escalation_timeout: u64,
     pub pool_configs: HashMap<String, PoolConfigYaml>,
     pub pool_auto_expand: bool,
+    #[serde(default = "default_launch_command")]
+    pub agent_launch_command: String,
+}
+
+fn default_launch_command() -> String {
+    "claude".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -66,6 +72,7 @@ mod tests {
             escalation_timeout: 300000,
             pool_configs: HashMap::new(),
             pool_auto_expand: false,
+            agent_launch_command: "claude".into(),
         };
         let json = serde_json::to_string(&settings).unwrap();
         let back: Settings = serde_json::from_str(&json).unwrap();

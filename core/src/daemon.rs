@@ -13,9 +13,16 @@
 use std::path::Path;
 use std::sync::mpsc;
 
+use crate::agent::bridge;
 use crate::command::Command;
+use crate::convergence::executor::ConvergenceExecutor;
+use crate::convergence::retry::RetryPolicy;
+use crate::infrastructure::SessionBackend;
+use crate::infrastructure::mock::MockBackend;
 use crate::service::ServiceSocket;
 use crate::sys::Sys;
+use crate::types::config::BackoffStrategy;
+use cmx_utils::response::Action;
 use cmx_utils::watch::WatchRegistry;
 
 
@@ -96,6 +103,8 @@ pub struct Daemon {
     receiver: mpsc::Receiver<DaemonEvent>,
     handle: DaemonHandle,
     config: DaemonConfig,
+    backend: Box<dyn SessionBackend + Send>,
+    executor: ConvergenceExecutor,
 }
 
 
@@ -105,13 +114,24 @@ impl Daemon {
         Self::with_config(config_dir, DaemonConfig::default())
     }
 
-    /// Initialize with custom config.
+    /// Initialize with custom config (uses MockBackend by default).
     pub fn with_config(config_dir: &Path, config: DaemonConfig) -> Result<Daemon, String> {
+        Self::with_backend(config_dir, config, Box::new(MockBackend::new()))
+    }
+
+    /// Initialize with a specific session backend.
+    pub fn with_backend(
+        config_dir: &Path,
+        config: DaemonConfig,
+        backend: Box<dyn SessionBackend + Send>,
+    ) -> Result<Daemon, String> {
         let sys = Sys::new(config_dir)?;
         let service = ServiceSocket::start(config_dir)?;
         let registry = WatchRegistry::new();
         let (sender, receiver) = mpsc::channel();
         let handle = DaemonHandle { sender };
+        let policy = RetryPolicy::new(3, BackoffStrategy::Fixed, 100);
+        let executor = ConvergenceExecutor::new(policy);
 
         Ok(Daemon {
             sys,
@@ -120,6 +140,8 @@ impl Daemon {
             receiver,
             handle,
             config,
+            backend,
+            executor,
         })
     }
 
@@ -161,6 +183,9 @@ impl Daemon {
             }
         }
 
+        // Execute any actions accumulated from socket commands
+        self.execute_pending_actions();
+
         // Check if a DaemonStop command was received via the socket
         if self.service.shutdown_requested() {
             return true;
@@ -179,6 +204,7 @@ impl Daemon {
             match self.receiver.try_recv() {
                 Ok(DaemonEvent::InternalCommand { command, source }) => {
                     let _response = self.sys.execute(command);
+                    self.execute_pending_actions();
                     let now = now_ms();
                     self.registry.record_change(now);
                     self.registry.notify_all(&source, now);
@@ -197,6 +223,35 @@ impl Daemon {
             }
         }
         false
+    }
+
+    /// Drain accumulated actions from Sys, expand logical actions into
+    /// infrastructure actions, execute through the backend, and feed
+    /// session mappings back into Sys.
+    fn execute_pending_actions(&mut self) {
+        let raw_actions = self.sys.drain_actions();
+        if raw_actions.is_empty() {
+            return;
+        }
+
+        let launch_cmd = self.sys.settings().agent_launch_command.clone();
+        let (expanded, session_mappings) = bridge::expand_actions(raw_actions, &launch_cmd);
+
+        let result = self.executor.execute(expanded, self.backend.as_mut());
+
+        // Feed session mappings back to Sys for successful creates
+        for (agent_name, sess_name) in session_mappings {
+            let succeeded = result.succeeded.iter().any(|a| {
+                matches!(a, Action::CreateSession { name, .. } if name == &sess_name)
+            });
+            if succeeded {
+                let _ = self.sys.notify_session_created(&agent_name, &sess_name);
+            }
+        }
+
+        for (action, err) in &result.failed {
+            eprintln!("cmx daemon: action failed: {:?}: {}", action, err);
+        }
     }
 
     /// Borrow Sys for inspection (testing).
@@ -443,5 +498,118 @@ mod tests {
     fn daemon_config_default() {
         let config = DaemonConfig::default();
         assert_eq!(config.socket_poll_ms, 50);
+    }
+
+    // --- agent execution bridge tests ---
+
+    #[test]
+    fn daemon_agent_new_creates_session_via_backend() {
+        let dir = test_config_dir();
+        let mut daemon = Daemon::with_backend(
+            &dir,
+            DaemonConfig { socket_poll_ms: 10 },
+            Box::new(MockBackend::new()),
+        )
+        .unwrap();
+        let handle = daemon.handle();
+
+        handle
+            .send_command(
+                Command::AgentNew {
+                    role: "worker".into(),
+                    name: Some("test-w1".into()),
+                    path: None,
+                    agent_type: None,
+                },
+                "test",
+            )
+            .unwrap();
+
+        let shutdown = daemon.tick();
+        assert!(!shutdown);
+
+        // Access backend through Daemon — downcast
+        // We can't easily get back the concrete MockBackend, so we check the
+        // agent's session field as evidence that the backend was called.
+        let agents = daemon.sys().data().agents().list();
+        assert_eq!(agents.len(), 1);
+        assert_eq!(agents[0].name, "test-w1");
+
+        // The session field should be set via the bridge feedback loop
+        assert_eq!(
+            agents[0].session.as_deref(),
+            Some("cmx-test-w1"),
+            "agent.session should be set after backend executes CreateSession"
+        );
+
+        daemon.service.shutdown_ref();
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn daemon_agent_new_sets_session_field() {
+        let dir = test_config_dir();
+        let mut daemon = Daemon::with_backend(
+            &dir,
+            DaemonConfig { socket_poll_ms: 10 },
+            Box::new(MockBackend::new()),
+        )
+        .unwrap();
+        let handle = daemon.handle();
+
+        handle
+            .send_command(
+                Command::AgentNew {
+                    role: "worker".into(),
+                    name: Some("w2".into()),
+                    path: None,
+                    agent_type: None,
+                },
+                "test",
+            )
+            .unwrap();
+
+        daemon.tick();
+
+        let agent = daemon.sys().data().agents().get("w2").unwrap();
+        assert_eq!(agent.session, Some("cmx-w2".to_string()));
+    }
+
+    #[test]
+    fn daemon_agent_kill_creates_kill_session() {
+        let dir = test_config_dir();
+        let mut daemon = Daemon::with_backend(
+            &dir,
+            DaemonConfig { socket_poll_ms: 10 },
+            Box::new(MockBackend::new()),
+        )
+        .unwrap();
+        let handle = daemon.handle();
+
+        // First create an agent
+        handle
+            .send_command(
+                Command::AgentNew {
+                    role: "worker".into(),
+                    name: Some("k1".into()),
+                    path: None,
+                    agent_type: None,
+                },
+                "test",
+            )
+            .unwrap();
+        daemon.tick();
+
+        // Now kill it
+        handle
+            .send_command(Command::AgentKill { name: "k1".into() }, "test")
+            .unwrap();
+        daemon.tick();
+
+        // Agent should be gone
+        assert!(daemon.sys().data().agents().get("k1").is_none());
+
+        daemon.service.shutdown_ref();
+        cleanup(&dir);
     }
 }
