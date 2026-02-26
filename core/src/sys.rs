@@ -440,6 +440,34 @@ impl Sys {
             agent: name.clone(),
             task: Some(task.clone()),
         });
+
+        // Resolve role skill and inject briefing into agent's session
+        if let Some(agent) = self.data.agents().get(&name) {
+            let skill_text = self.library.get_parsed(&agent.role)
+                .ok()
+                .map(|doc| doc.instructions.clone());
+            let task_spec = self.data.tasks().get(&task)
+                .and_then(|t| t.spec_path.as_ref())
+                .and_then(|p| std::fs::read_to_string(p).ok());
+            let project_ctx = self.data.folders().list().first()
+                .map(|f| format!("Project: {}\nPath: {}", f.name, f.path));
+
+            let briefing = crate::agent::briefing::compose_briefing(
+                skill_text.as_deref(),
+                task_spec.as_deref(),
+                project_ctx.as_deref(),
+            );
+
+            if !briefing.is_empty() {
+                if let Some(ref session) = agent.session {
+                    self.actions.push(Action::SendKeys {
+                        target: session.clone(),
+                        keys: briefing,
+                    });
+                }
+            }
+        }
+
         Response::Ok {
             output: format!("Agent '{}' assigned to task '{}'", name, task),
         }
@@ -3332,5 +3360,114 @@ mod tests {
         // Skills from the removed project should be gone
         assert!(!sys.library().list().contains(&"hw-builder"),
             "hw-builder should be gone after project remove");
+    }
+
+    // --- agent assign with briefing (MO.2) ---
+
+    #[test]
+    fn agent_assign_resolves_role_skill() {
+        let mut sys = test_sys();
+        let hw_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap()
+            .join("tests/hollow-world");
+        sys.execute(Command::ProjectAdd {
+            name: "hw".into(),
+            path: hw_path.to_string_lossy().into(),
+        });
+
+        // Create agent with role matching a skill name
+        sys.execute(Command::AgentNew {
+            role: "hw-builder".into(),
+            name: Some("b1".into()),
+            path: None,
+            agent_type: None,
+        });
+        // Give the agent a session so briefing can be delivered
+        sys.notify_session_created("b1", "cmx-b1").unwrap();
+
+        // Create a task to assign
+        sys.execute(Command::TaskSet {
+            id: "T1".into(),
+            title: None,
+            status: None,
+            result: None,
+            agent: None,
+        });
+
+        sys.drain_actions(); // clear prior actions
+        sys.execute(Command::AgentAssign {
+            name: "b1".into(),
+            task: "T1".into(),
+        });
+
+        let actions = sys.drain_actions();
+        // Should have UpdateAssignment + SendKeys with briefing
+        let send_keys = actions.iter().find(|a| matches!(a, Action::SendKeys { .. }));
+        assert!(send_keys.is_some(), "Expected SendKeys with briefing, got {:?}", actions);
+        if let Some(Action::SendKeys { target, keys }) = send_keys {
+            assert_eq!(target, "cmx-b1");
+            assert!(keys.contains("Skill Instructions"), "Briefing should contain skill instructions");
+            assert!(keys.contains("Builder Instructions"), "Briefing should contain builder content");
+        }
+    }
+
+    #[test]
+    fn agent_assign_no_skill_still_succeeds() {
+        let mut sys = test_sys();
+        sys.execute(Command::AgentNew {
+            role: "unknown-role".into(),
+            name: Some("u1".into()),
+            path: None,
+            agent_type: None,
+        });
+        sys.execute(Command::TaskSet {
+            id: "T2".into(),
+            title: None,
+            status: None,
+            result: None,
+            agent: None,
+        });
+
+        let r = sys.execute(Command::AgentAssign {
+            name: "u1".into(),
+            task: "T2".into(),
+        });
+        assert!(is_ok(&r), "Assign should succeed even without matching skill");
+    }
+
+    #[test]
+    fn agent_assign_no_session_skips_sendkeys() {
+        let mut sys = test_sys();
+        let hw_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap()
+            .join("tests/hollow-world");
+        sys.execute(Command::ProjectAdd {
+            name: "hw".into(),
+            path: hw_path.to_string_lossy().into(),
+        });
+        sys.execute(Command::AgentNew {
+            role: "hw-builder".into(),
+            name: Some("b2".into()),
+            path: None,
+            agent_type: None,
+        });
+        // Do NOT set a session — no SendKeys should be emitted
+        sys.execute(Command::TaskSet {
+            id: "T3".into(),
+            title: None,
+            status: None,
+            result: None,
+            agent: None,
+        });
+
+        sys.drain_actions();
+        sys.execute(Command::AgentAssign {
+            name: "b2".into(),
+            task: "T3".into(),
+        });
+
+        let actions = sys.drain_actions();
+        let send_keys = actions.iter().find(|a| matches!(a, Action::SendKeys { .. }));
+        assert!(send_keys.is_none(), "No SendKeys expected without session, got {:?}", actions);
     }
 }

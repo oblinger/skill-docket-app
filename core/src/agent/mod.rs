@@ -1,3 +1,4 @@
+pub mod briefing;
 pub mod bridge;
 pub mod conversation_log;
 pub mod copilot_sync;
