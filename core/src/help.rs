@@ -71,6 +71,9 @@ Project commands:
   project list [--json]      List all registered projects
   project scan <name>        Scan a project for task subfolders
 
+Roadmap commands:
+  roadmap load <path>        Load tasks from a Roadmap.md file
+
 Messaging commands:
   tell <agent> <text...>     Send a message to an agent
   interrupt <agent> [text]   Send Ctrl-C to an agent, optionally followed by text
@@ -226,6 +229,14 @@ Project commands — manage registered project folders
   project scan <name>
     Scan a project folder for task subfolders. Queues discovery
     of spec files and execution state.",
+
+        "roadmap" => "\
+Roadmap commands — load and manage roadmap task trees
+
+  roadmap load <path>
+    Parse a Roadmap.md file into the task tree. Registers the file
+    path for write-back so status changes (task.check, task.set)
+    are reflected on disk.",
 
         "layout" => "\
 Layout commands — manage tmux sessions and pane layout
@@ -615,6 +626,16 @@ skd project scan — scan project folder
 Usage: skd project scan <name>
 
 Scans the project folder for task subfolders.",
+
+        "roadmap.load" => "\
+skd roadmap load — load tasks from a Roadmap.md file
+
+Usage: skd roadmap load <path>
+
+Parses the Roadmap.md file and adds all tasks to the task tree.
+Registers the file path for automatic write-back: when task status
+changes via task.check, task.uncheck, or task.set, the corresponding
+status marker in the file is updated in-place.",
 
         "tell" => "\
 skd tell — send a message to an agent
@@ -1021,6 +1042,13 @@ mod tests {
     }
 
     #[test]
+    fn group_help_roadmap() {
+        let text = help_text(Some("roadmap"));
+        assert!(text.contains("roadmap load"));
+        assert!(text.contains("write-back"));
+    }
+
+    #[test]
     fn group_help_layout() {
         let text = help_text(Some("layout"));
         assert!(text.contains("layout row"));
@@ -1102,6 +1130,7 @@ mod tests {
             "task.list", "task.get", "task.set", "task.check", "task.uncheck",
             "config.load", "config.save", "config.add", "config.list",
             "project.add", "project.remove", "project.list", "project.scan",
+            "roadmap.load",
             "tell", "interrupt",
             "layout.row", "layout.column", "layout.merge",
             "layout.place", "layout.capture", "layout.session",
