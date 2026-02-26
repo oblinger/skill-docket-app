@@ -1,9 +1,11 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::agent::pool::{PoolConfig, PoolManager};
 use crate::command::Command;
 use crate::data::Data;
 use crate::infrastructure::runner::ShellRunner;
+use crate::library::{Library, LibrarySource, LibraryType, SourceKind};
+use crate::library::LibraryConfig;
 use crate::rig::config::{RemoteConfig, RigRegistry};
 use crate::rig::orchestrator::RigOrchestrator;
 use crate::types::agent::{Agent, AgentStatus, AgentType, HealthState};
@@ -26,8 +28,27 @@ pub struct Sys {
     actions: Vec<Action>,
     rig: Option<RigOrchestrator>,
     pool: PoolManager,
+    library: Library,
 }
 
+
+/// Build a LibraryConfig from the current folder registry, adding project
+/// skill sources for any registered project that has a `skills/` subfolder.
+fn build_library_config(data: &Data) -> LibraryConfig {
+    let mut config = LibraryConfig::default();
+    for folder in data.folders().list() {
+        let skills_dir = PathBuf::from(&folder.path).join("skills");
+        if skills_dir.is_dir() {
+            config.extra_sources.push(crate::library::ExtraSource {
+                path: skills_dir,
+                library_type: LibraryType::SkillsOnly,
+                priority: 25,
+                name: format!("project:{}", folder.name),
+            });
+        }
+    }
+    config
+}
 
 /// Build a PoolManager from the current settings.
 fn build_pool_manager(settings: &Settings) -> PoolManager {
@@ -54,12 +75,15 @@ impl Sys {
             Box::new(ShellRunner),
         ));
         let pool = build_pool_manager(&settings);
+        let lib_config = build_library_config(&data);
+        let library = Library::new(&lib_config).unwrap_or_else(|_| Library::empty());
         Ok(Sys {
             data,
             settings,
             actions: Vec::new(),
             rig,
             pool,
+            library,
         })
     }
 
@@ -67,12 +91,15 @@ impl Sys {
     pub fn from_data(data: Data) -> Sys {
         let settings = data.settings().clone();
         let pool = build_pool_manager(&settings);
+        let lib_config = build_library_config(&data);
+        let library = Library::new(&lib_config).unwrap_or_else(|_| Library::empty());
         Sys {
             data,
             settings,
             actions: Vec::new(),
             rig: None,
             pool,
+            library,
         }
     }
 
@@ -80,12 +107,15 @@ impl Sys {
     pub fn from_data_with_rig(data: Data, rig: RigOrchestrator) -> Sys {
         let settings = data.settings().clone();
         let pool = build_pool_manager(&settings);
+        let lib_config = build_library_config(&data);
+        let library = Library::new(&lib_config).unwrap_or_else(|_| Library::empty());
         Sys {
             data,
             settings,
             actions: Vec::new(),
             rig: Some(rig),
             pool,
+            library,
         }
     }
 
@@ -213,6 +243,11 @@ impl Sys {
     /// Borrow the runtime settings.
     pub fn settings(&self) -> &Settings {
         &self.settings
+    }
+
+    /// Borrow the skill library.
+    pub fn library(&self) -> &Library {
+        &self.library
     }
 
     /// Build a `SystemSnapshot` capturing the current system state.
@@ -677,9 +712,22 @@ impl Sys {
             result: None,
             agent: None,
             children: vec![],
-            spec_path: Some(path),
+            spec_path: Some(path.clone()),
         };
         let _ = self.data.tasks_mut().add_root(task);
+
+        // Register project skill source if skills/ subfolder exists
+        let skills_dir = PathBuf::from(&path).join("skills");
+        if skills_dir.is_dir() {
+            let source = LibrarySource {
+                kind: SourceKind::Project(name.clone()),
+                library_type: LibraryType::SkillsOnly,
+                path: skills_dir,
+                priority: 25,
+            };
+            let _ = self.library.add_source(source);
+        }
+
         Response::Ok {
             output: format!("Project '{}' added", name),
         }
@@ -689,6 +737,9 @@ impl Sys {
         if let Err(e) = self.data.folders_mut().remove(&name) {
             return Response::Error { message: e };
         }
+        // Rebuild library without the removed project's skills
+        let lib_config = build_library_config(&self.data);
+        self.library = Library::new(&lib_config).unwrap_or_else(|_| Library::empty());
         Response::Ok {
             output: format!("Project '{}' removed", name),
         }
@@ -3221,5 +3272,65 @@ mod tests {
         let result = sys.notify_agent_ready("nonexistent");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
+    }
+
+    // --- library integration (MO.1) ---
+
+    #[test]
+    fn sys_has_library() {
+        let sys = test_sys();
+        // Library exists and is accessible (may be empty in test context)
+        let _ = sys.library().list();
+    }
+
+    #[test]
+    fn project_add_with_skills_registers_source() {
+        let mut sys = test_sys();
+        // Use the hollow-world fixture which has a skills/ dir
+        let hw_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap()
+            .join("tests/hollow-world");
+        let r = sys.execute(Command::ProjectAdd {
+            name: "hw".into(),
+            path: hw_path.to_string_lossy().into(),
+        });
+        assert!(is_ok(&r));
+
+        // Library should now contain hw-builder, hw-checker, hw-pilot, hw-pm
+        let skills = sys.library().list();
+        assert!(skills.contains(&"hw-builder"), "expected hw-builder in {:?}", skills);
+        assert!(skills.contains(&"hw-pm"), "expected hw-pm in {:?}", skills);
+    }
+
+    #[test]
+    fn project_add_without_skills_no_error() {
+        let mut sys = test_sys();
+        // Use a temp dir with no skills/ subfolder
+        let dir = std::env::temp_dir().join("cmx-test-no-skills");
+        let _ = std::fs::create_dir_all(&dir);
+        let r = sys.execute(Command::ProjectAdd {
+            name: "bare".into(),
+            path: dir.to_string_lossy().into(),
+        });
+        assert!(is_ok(&r));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_remove_drops_skills() {
+        let mut sys = test_sys();
+        let hw_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent().unwrap()
+            .join("tests/hollow-world");
+        sys.execute(Command::ProjectAdd {
+            name: "hw".into(),
+            path: hw_path.to_string_lossy().into(),
+        });
+        assert!(sys.library().list().contains(&"hw-builder"));
+
+        sys.execute(Command::ProjectRemove { name: "hw".into() });
+        // Skills from the removed project should be gone
+        assert!(!sys.library().list().contains(&"hw-builder"),
+            "hw-builder should be gone after project remove");
     }
 }
