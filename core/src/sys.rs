@@ -782,7 +782,8 @@ impl Sys {
         let _ = self.data.tasks_mut().add_root(task);
 
         // Register project skill source if skills/ subfolder exists
-        let skills_dir = PathBuf::from(&path).join("skills");
+        let project_path = PathBuf::from(&path);
+        let skills_dir = project_path.join("skills");
         if skills_dir.is_dir() {
             let source = LibrarySource {
                 kind: SourceKind::Project(name.clone()),
@@ -793,8 +794,75 @@ impl Sys {
             let _ = self.library.add_source(source);
         }
 
+        // Apply .skilldocket config if present
+        let config_path = project_path.join(".skilldocket");
+        let mut config_notes = String::new();
+        if config_path.exists() {
+            match crate::data::project_config::load(&config_path) {
+                Ok(cfg) => {
+                    // Load roadmap if specified
+                    if let Some(ref roadmap_rel) = cfg.roadmap {
+                        let roadmap_path = project_path.join(roadmap_rel);
+                        if roadmap_path.exists() {
+                            if let Ok(content) = std::fs::read_to_string(&roadmap_path) {
+                                if let Ok(tasks) = crate::data::roadmap::parse(&content) {
+                                    let count = tasks.len();
+                                    for t in tasks {
+                                        let _ = self.data.tasks_mut().add_root(t);
+                                    }
+                                    self.data.add_roadmap_path(roadmap_path);
+                                    config_notes.push_str(&format!(
+                                        ", roadmap loaded ({} tasks)", count
+                                    ));
+                                }
+                            }
+                        }
+                    }
+
+                    // Create agents defined in config
+                    let mut agent_count = 0;
+                    for agent_def in &cfg.agents {
+                        let agent_path = path.clone();
+                        let create_resp = self.cmd_agent_new(
+                            agent_def.role.clone(),
+                            Some(agent_def.name.clone()),
+                            Some(agent_path),
+                            None,
+                        );
+                        if matches!(create_resp, Response::Ok { .. }) {
+                            // Set skill/role on the agent
+                            if let Some(ref skill) = agent_def.skill {
+                                if let Some(agent) = self.data.agents_mut().get_mut(&agent_def.name) {
+                                    agent.role = skill.clone();
+                                }
+                            }
+                            agent_count += 1;
+
+                            // Auto-start: emit CreateAgent action for bridge expansion
+                            if cfg.auto_start {
+                                self.actions.push(Action::CreateAgent {
+                                    name: agent_def.name.clone(),
+                                    role: agent_def.role.clone(),
+                                    path: path.clone(),
+                                });
+                            }
+                        }
+                    }
+                    if agent_count > 0 {
+                        config_notes.push_str(&format!(", {} agents created", agent_count));
+                    }
+                    if cfg.auto_start && agent_count > 0 {
+                        config_notes.push_str(", auto-start enabled");
+                    }
+                }
+                Err(e) => {
+                    config_notes.push_str(&format!(", .skilldocket error: {}", e));
+                }
+            }
+        }
+
         Response::Ok {
-            output: format!("Project '{}' added", name),
+            output: format!("Project '{}' added{}", name, config_notes),
         }
     }
 
@@ -3706,5 +3774,143 @@ mod tests {
     fn roadmap_cli_parse() {
         let cmd = crate::cli::parse::parse_args(&["roadmap", "load", "/tmp/Roadmap.md"]).unwrap();
         assert!(matches!(cmd, Command::RoadmapLoad { path } if path == "/tmp/Roadmap.md"));
+    }
+
+    // -----------------------------------------------------------------------
+    // .skilldocket config-driven setup tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn project_add_with_skilldocket_creates_agents() {
+        let dir = roadmap_test_dir("skilldocket_agents");
+        std::fs::write(dir.join(".skilldocket"), "\
+project: TestProj
+agents:
+  - name: pm1
+    role: pm
+  - name: w1
+    role: worker
+").unwrap();
+
+        let mut sys = test_sys();
+        let resp = sys.execute(Command::ProjectAdd {
+            name: "test".into(),
+            path: dir.to_str().unwrap().into(),
+        });
+        assert!(is_ok(&resp));
+        let out = output(&resp);
+        assert!(out.contains("2 agents created"), "got: {}", out);
+
+        // Agents exist
+        assert!(sys.data().agents().get("pm1").is_some());
+        assert!(sys.data().agents().get("w1").is_some());
+        assert_eq!(sys.data().agents().get("w1").unwrap().role, "worker");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_add_with_skilldocket_loads_roadmap() {
+        let dir = roadmap_test_dir("skilldocket_roadmap");
+        std::fs::write(dir.join("Roadmap.md"), "\
+# \u{25EF} M1 \u{2014} Build Core
+## \u{25EF} M1.1 \u{2014} Parser
+").unwrap();
+        std::fs::write(dir.join(".skilldocket"), "\
+project: RoadmapProj
+roadmap: Roadmap.md
+").unwrap();
+
+        let mut sys = test_sys();
+        sys.execute(Command::ProjectAdd {
+            name: "rmp".into(),
+            path: dir.to_str().unwrap().into(),
+        });
+
+        assert!(sys.data().tasks().get("M1").is_some());
+        assert!(sys.data().tasks().get("M1.1").is_some());
+        assert_eq!(sys.data().roadmap_paths().len(), 1);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_add_with_skilldocket_auto_start_emits_actions() {
+        let dir = roadmap_test_dir("skilldocket_autostart");
+        std::fs::write(dir.join(".skilldocket"), "\
+project: AutoStart
+auto_start: true
+agents:
+  - name: a1
+    role: worker
+").unwrap();
+
+        let mut sys = test_sys();
+        sys.execute(Command::ProjectAdd {
+            name: "auto".into(),
+            path: dir.to_str().unwrap().into(),
+        });
+
+        let actions = sys.drain_actions();
+        let create_agent = actions.iter().find(|a| matches!(a, Action::CreateAgent { name, .. } if name == "a1"));
+        assert!(create_agent.is_some(), "Expected CreateAgent action, got: {:?}", actions);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_add_with_skilldocket_sets_skill_as_role() {
+        let dir = roadmap_test_dir("skilldocket_skill");
+        std::fs::write(dir.join(".skilldocket"), "\
+project: SkillProj
+agents:
+  - name: pm1
+    role: pm
+    skill: agent-pm
+").unwrap();
+
+        let mut sys = test_sys();
+        sys.execute(Command::ProjectAdd {
+            name: "sp".into(),
+            path: dir.to_str().unwrap().into(),
+        });
+
+        let agent = sys.data().agents().get("pm1").unwrap();
+        assert_eq!(agent.role, "agent-pm");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_add_without_skilldocket_works_normally() {
+        let dir = roadmap_test_dir("no_skilldocket");
+
+        let mut sys = test_sys();
+        let resp = sys.execute(Command::ProjectAdd {
+            name: "plain".into(),
+            path: dir.to_str().unwrap().into(),
+        });
+        assert!(is_ok(&resp));
+        let out = output(&resp);
+        assert_eq!(out, "Project 'plain' added");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn project_add_with_invalid_skilldocket_reports_error() {
+        let dir = roadmap_test_dir("bad_skilldocket");
+        std::fs::write(dir.join(".skilldocket"), "invalid: yaml: [broken").unwrap();
+
+        let mut sys = test_sys();
+        let resp = sys.execute(Command::ProjectAdd {
+            name: "bad".into(),
+            path: dir.to_str().unwrap().into(),
+        });
+        assert!(is_ok(&resp)); // Project still added despite config error
+        let out = output(&resp);
+        assert!(out.contains(".skilldocket error"), "got: {}", out);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

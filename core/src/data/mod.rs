@@ -9,6 +9,7 @@ pub mod task_tree;
 // M2 modules
 pub mod config;
 pub mod merge;
+pub mod project_config;
 pub mod scanner;
 
 use std::collections::HashMap;
