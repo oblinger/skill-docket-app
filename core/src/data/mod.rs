@@ -40,6 +40,8 @@ pub struct Data {
     /// In-memory layout expressions keyed by session name.
     /// Populated by layout capture; persisted to ConfigDoc on save.
     layouts: HashMap<String, String>,
+    /// Roadmap file paths loaded via `roadmap.load`, used for write-back.
+    roadmap_paths: Vec<PathBuf>,
 }
 
 
@@ -71,6 +73,7 @@ impl Data {
             messages: MessageStore::new(),
             config_dir: config_dir.to_path_buf(),
             layouts: HashMap::new(),
+            roadmap_paths: Vec::new(),
         })
     }
 
@@ -128,6 +131,18 @@ impl Data {
     pub fn update_layout(&mut self, session: &str, layout_expr: &str) {
         self.layouts
             .insert(session.to_string(), layout_expr.to_string());
+    }
+
+    /// Return the loaded roadmap file paths.
+    pub fn roadmap_paths(&self) -> &[PathBuf] {
+        &self.roadmap_paths
+    }
+
+    /// Register a roadmap file path for write-back.
+    pub fn add_roadmap_path(&mut self, path: PathBuf) {
+        if !self.roadmap_paths.contains(&path) {
+            self.roadmap_paths.push(path);
+        }
     }
 }
 

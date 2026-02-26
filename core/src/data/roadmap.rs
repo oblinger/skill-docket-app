@@ -71,6 +71,66 @@ pub fn serialize(tasks: &[TaskNode]) -> String {
 }
 
 
+/// Update a single task's status marker in-place within roadmap content.
+///
+/// Scans line-by-line for a heading whose parsed ID matches `task_id`,
+/// then replaces only the status marker character. All other content
+/// (body text, blank lines, formatting) is preserved exactly.
+///
+/// Returns `Err` if the task ID is not found in any heading.
+pub fn update_status_in_place(
+    content: &str,
+    task_id: &str,
+    new_status: &TaskStatus,
+) -> Result<String, String> {
+    let new_marker = status_to_marker(new_status);
+    let mut result = String::with_capacity(content.len());
+    let mut found = false;
+
+    for (i, line) in content.lines().enumerate() {
+        if i > 0 || !result.is_empty() {
+            result.push('\n');
+        }
+
+        let trimmed = line.trim();
+        if !found && trimmed.starts_with('#') {
+            let hashes = trimmed.chars().take_while(|c| *c == '#').count();
+            if (1..=3).contains(&hashes) {
+                let rest = trimmed[hashes..].trim();
+                if let Ok((_, after_marker)) = parse_status_marker(rest) {
+                    if let Ok((id, _, _)) = parse_id_title_result(after_marker) {
+                        if id == task_id {
+                            // Reconstruct the line with the new marker
+                            let prefix = &line[..line.find('#').unwrap()];
+                            let hashes_str: String = "#".repeat(hashes);
+                            result.push_str(&format!(
+                                "{}{} {} {}",
+                                prefix, hashes_str, new_marker, after_marker
+                            ));
+                            found = true;
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+
+        result.push_str(line);
+    }
+
+    // Preserve trailing newline if original had one
+    if content.ends_with('\n') {
+        result.push('\n');
+    }
+
+    if found {
+        Ok(result)
+    } else {
+        Err(format!("task '{}' not found in roadmap", task_id))
+    }
+}
+
+
 fn serialize_node(node: &TaskNode, heading_level: usize, out: &mut String) {
     let marker = status_to_marker(&node.status);
     let hashes: String = "#".repeat(heading_level);
@@ -121,6 +181,7 @@ fn parse_status_marker(s: &str) -> Result<(TaskStatus, &str), String> {
         '\u{25EF}' => TaskStatus::Pending,     // white circle
         '\u{25CB}' => TaskStatus::Pending,     // another white circle variant
         '\u{25B6}' => TaskStatus::InProgress,  // play triangle
+        '\u{25D0}' => TaskStatus::InProgress,  // circle with left half black (◐)
         '\u{2B24}' => TaskStatus::Completed,   // black large circle
         '\u{2B1B}' => TaskStatus::Completed,   // black square (alternative)
         _ => {
@@ -339,6 +400,89 @@ Body paragraph here.
     fn parse_empty() {
         let tasks = parse("").unwrap();
         assert!(tasks.is_empty());
+    }
+
+    #[test]
+    fn update_in_place_changes_marker() {
+        let md = "\
+# \u{25EF} M1 \u{2014} Core Daemon
+
+Some body text here that must be preserved.
+
+## \u{25EF} M1.1 \u{2014} Socket Protocol
+### \u{25EF} M1.1.1 \u{2014} Message Format
+
+Details about message format.
+
+## \u{25B6} M1.2 \u{2014} Health Checks
+";
+        let updated = update_status_in_place(md, "M1.1", &TaskStatus::Completed).unwrap();
+        assert!(updated.contains("## \u{2B24} M1.1 \u{2014} Socket Protocol"));
+        // Body text preserved
+        assert!(updated.contains("Some body text here that must be preserved."));
+        assert!(updated.contains("Details about message format."));
+        // Other markers unchanged
+        assert!(updated.contains("# \u{25EF} M1 \u{2014} Core Daemon"));
+        assert!(updated.contains("### \u{25EF} M1.1.1 \u{2014} Message Format"));
+        assert!(updated.contains("## \u{25B6} M1.2 \u{2014} Health Checks"));
+    }
+
+    #[test]
+    fn update_in_place_not_found() {
+        let md = "# \u{25EF} M1 \u{2014} Core\n";
+        let result = update_status_in_place(md, "M99", &TaskStatus::Completed);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("M99"));
+    }
+
+    #[test]
+    fn update_in_place_preserves_trailing_newline() {
+        let md = "# \u{25EF} M1 \u{2014} Core\n";
+        let updated = update_status_in_place(md, "M1", &TaskStatus::Completed).unwrap();
+        assert!(updated.ends_with('\n'));
+        assert!(updated.starts_with("# \u{2B24} M1"));
+    }
+
+    #[test]
+    fn update_in_place_leaf_task() {
+        let md = "\
+# \u{25B6} M1 \u{2014} Active
+## \u{25EF} M1.1 \u{2014} Sub
+### \u{25EF} M1.1.1 \u{2014} Leaf Task
+";
+        let updated = update_status_in_place(md, "M1.1.1", &TaskStatus::Completed).unwrap();
+        assert!(updated.contains("### \u{2B24} M1.1.1 \u{2014} Leaf Task"));
+        // Parent markers unchanged
+        assert!(updated.contains("# \u{25B6} M1 \u{2014} Active"));
+        assert!(updated.contains("## \u{25EF} M1.1 \u{2014} Sub"));
+    }
+
+    #[test]
+    fn update_in_place_with_section_separator() {
+        // Real roadmaps use "### ." as section separators
+        let md = "\
+# \u{25EF} M1 \u{2014} Core
+
+## \u{25EF} M1.1 \u{2014} Sub
+
+### \u{25EF} M1.1.1 \u{2014} Task One
+
+### .
+
+## \u{25EF} M1.2 \u{2014} Another Sub
+";
+        let updated = update_status_in_place(md, "M1.1.1", &TaskStatus::Completed).unwrap();
+        assert!(updated.contains("### \u{2B24} M1.1.1 \u{2014} Task One"));
+        assert!(updated.contains("### ."));
+    }
+
+    #[test]
+    fn parse_half_circle_as_in_progress() {
+        let md = "# \u{25D0} M1 \u{2014} Partial Milestone\n";
+        let tasks = parse(md).unwrap();
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].status, TaskStatus::InProgress);
+        assert_eq!(tasks[0].id, "M1");
     }
 
     #[test]

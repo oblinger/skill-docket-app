@@ -257,6 +257,13 @@ pub enum Command {
         name: String,
     },
 
+    /// Load tasks from a Roadmap.md file into the task tree.
+    #[serde(rename = "roadmap.load")]
+    RoadmapLoad {
+        /// Path to the Roadmap.md file.
+        path: String,
+    },
+
     // -----------------------------------------------------------------
     // Pool commands
     // -----------------------------------------------------------------

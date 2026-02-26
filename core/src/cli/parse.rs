@@ -22,6 +22,7 @@ pub fn parse_args(args: &[&str]) -> Result<Command, String> {
         "task" => parse_task(args),
         "config" => parse_config(args),
         "project" => parse_project(args),
+        "roadmap" => parse_roadmap(args),
         "pool" => parse_pool(args),
         "tell" => parse_tell(args),
         "interrupt" => parse_interrupt(args),
@@ -347,6 +348,24 @@ fn parse_project(args: &[&str]) -> Result<Command, String> {
             })
         }
         _ => Err(format!("Unknown project subcommand: '{}'", args[1])),
+    }
+}
+
+/// `cmx roadmap <load>`
+fn parse_roadmap(args: &[&str]) -> Result<Command, String> {
+    if args.len() < 2 {
+        return Err("Usage: cmx roadmap <load> <path>".into());
+    }
+    match args[1] {
+        "load" => {
+            if args.len() < 3 {
+                return Err("Usage: cmx roadmap load <path>".into());
+            }
+            Ok(Command::RoadmapLoad {
+                path: args[2].into(),
+            })
+        }
+        _ => Err(format!("Unknown roadmap subcommand: '{}'", args[1])),
     }
 }
 

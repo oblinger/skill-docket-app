@@ -149,6 +149,7 @@ impl Sys {
             Command::ProjectRemove { name } => self.cmd_project_remove(name),
             Command::ProjectList { format } => self.cmd_project_list(format),
             Command::ProjectScan { name } => self.cmd_project_scan(name),
+            Command::RoadmapLoad { path } => self.cmd_roadmap_load(path),
             Command::PoolList => self.cmd_pool_list(),
             Command::PoolStatus { role } => self.cmd_pool_status(role),
             Command::PoolSet { role, size, path } => self.cmd_pool_set(role, size, path),
@@ -623,11 +624,14 @@ impl Sys {
             }
         };
         // Apply any provided fields
+        let mut new_status: Option<TaskStatus> = None;
         if let Some(status_str) = status {
-            task.status = match parse_task_status(&status_str) {
+            let parsed = match parse_task_status(&status_str) {
                 Ok(s) => s,
                 Err(e) => return Response::Error { message: e },
             };
+            task.status = parsed.clone();
+            new_status = Some(parsed);
         }
         if let Some(title) = title {
             task.title = title;
@@ -642,6 +646,9 @@ impl Sys {
                 Some(agent)
             };
         }
+        if let Some(ref s) = new_status {
+            self.roadmap_write_back(&id, s);
+        }
         Response::Ok {
             output: format!("Task '{}' updated", id),
         }
@@ -651,6 +658,7 @@ impl Sys {
         if let Err(e) = self.data.tasks_mut().set_status(&id, TaskStatus::Completed) {
             return Response::Error { message: e };
         }
+        self.roadmap_write_back(&id, &TaskStatus::Completed);
         Response::Ok {
             output: format!("Task '{}' marked completed", id),
         }
@@ -660,6 +668,7 @@ impl Sys {
         if let Err(e) = self.data.tasks_mut().set_status(&id, TaskStatus::Pending) {
             return Response::Error { message: e };
         }
+        self.roadmap_write_back(&id, &TaskStatus::Pending);
         Response::Ok {
             output: format!("Task '{}' marked pending", id),
         }
@@ -842,6 +851,47 @@ impl Sys {
                 }
             }
             Err(e) => Response::Error { message: e },
+        }
+    }
+
+    fn cmd_roadmap_load(&mut self, path: String) -> Response {
+        let file_path = std::path::PathBuf::from(&path);
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(e) => {
+                return Response::Error {
+                    message: format!("cannot read '{}': {}", path, e),
+                }
+            }
+        };
+        match crate::data::roadmap::parse(&content) {
+            Ok(tasks) => {
+                let count = tasks.len();
+                for t in tasks {
+                    let _ = self.data.tasks_mut().add_root(t);
+                }
+                self.data.add_roadmap_path(file_path);
+                Response::Ok {
+                    output: format!("Loaded roadmap '{}': {} top-level tasks", path, count),
+                }
+            }
+            Err(e) => Response::Error { message: e },
+        }
+    }
+
+    /// Write back a task's status change to all loaded roadmap files.
+    fn roadmap_write_back(&self, task_id: &str, status: &TaskStatus) {
+        for roadmap_path in self.data.roadmap_paths() {
+            let content = match std::fs::read_to_string(roadmap_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            match crate::data::roadmap::update_status_in_place(&content, task_id, status) {
+                Ok(updated) => {
+                    let _ = std::fs::write(roadmap_path, updated);
+                }
+                Err(_) => continue, // Task not in this roadmap file
+            }
         }
     }
 
@@ -3497,5 +3547,164 @@ mod tests {
         let actions = sys.drain_actions();
         let send_keys = actions.iter().find(|a| matches!(a, Action::SendKeys { .. }));
         assert!(send_keys.is_none(), "No SendKeys expected without session, got {:?}", actions);
+    }
+
+    // -----------------------------------------------------------------------
+    // Roadmap load + write-back tests
+    // -----------------------------------------------------------------------
+
+    fn roadmap_test_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("cmx_roadmap_test_{}", name));
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    }
+
+    #[test]
+    fn roadmap_load_populates_tasks() {
+        let dir = roadmap_test_dir("load_populates");
+        let roadmap = dir.join("Roadmap.md");
+        std::fs::write(&roadmap, "\
+# \u{25EF} M1 \u{2014} Core
+## \u{25EF} M1.1 \u{2014} Socket
+## \u{25EF} M1.2 \u{2014} Health
+").unwrap();
+
+        let mut sys = test_sys();
+        let resp = sys.execute(Command::RoadmapLoad {
+            path: roadmap.to_str().unwrap().into(),
+        });
+        assert!(matches!(resp, Response::Ok { .. }));
+        assert!(sys.data().tasks().get("M1").is_some());
+        assert!(sys.data().tasks().get("M1.1").is_some());
+        assert!(sys.data().tasks().get("M1.2").is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn roadmap_load_registers_path_for_writeback() {
+        let dir = roadmap_test_dir("load_registers");
+        let roadmap = dir.join("Roadmap.md");
+        std::fs::write(&roadmap, "# \u{25EF} M1 \u{2014} Core\n").unwrap();
+
+        let mut sys = test_sys();
+        sys.execute(Command::RoadmapLoad {
+            path: roadmap.to_str().unwrap().into(),
+        });
+        assert_eq!(sys.data().roadmap_paths().len(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn task_check_writes_back_to_roadmap_file() {
+        let dir = roadmap_test_dir("check_writeback");
+        let roadmap = dir.join("Roadmap.md");
+        std::fs::write(&roadmap, "\
+# \u{25EF} M1 \u{2014} Core
+## \u{25EF} M1.1 \u{2014} Socket
+## \u{25EF} M1.2 \u{2014} Health
+").unwrap();
+
+        let mut sys = test_sys();
+        sys.execute(Command::RoadmapLoad {
+            path: roadmap.to_str().unwrap().into(),
+        });
+
+        sys.execute(Command::TaskCheck { id: "M1.1".into() });
+
+        // Verify in-memory
+        let task = sys.data().tasks().get("M1.1").unwrap();
+        assert_eq!(task.status, TaskStatus::Completed);
+
+        // Verify on disk
+        let content = std::fs::read_to_string(&roadmap).unwrap();
+        assert!(content.contains("\u{2B24} M1.1"), "Expected completed marker in file, got:\n{}", content);
+        assert!(content.contains("\u{25EF} M1 \u{2014} Core"));
+        assert!(content.contains("\u{25EF} M1.2 \u{2014} Health"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn task_uncheck_writes_back_to_roadmap_file() {
+        let dir = roadmap_test_dir("uncheck_writeback");
+        let roadmap = dir.join("Roadmap.md");
+        std::fs::write(&roadmap, "\
+# \u{2B24} M1 \u{2014} Core
+## \u{2B24} M1.1 \u{2014} Socket
+").unwrap();
+
+        let mut sys = test_sys();
+        sys.execute(Command::RoadmapLoad {
+            path: roadmap.to_str().unwrap().into(),
+        });
+
+        sys.execute(Command::TaskUncheck { id: "M1.1".into() });
+
+        let content = std::fs::read_to_string(&roadmap).unwrap();
+        assert!(content.contains("\u{25EF} M1.1"), "Expected pending marker in file");
+        assert!(content.contains("\u{2B24} M1 \u{2014} Core"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn task_set_status_writes_back_to_roadmap_file() {
+        let dir = roadmap_test_dir("set_writeback");
+        let roadmap = dir.join("Roadmap.md");
+        std::fs::write(&roadmap, "# \u{25EF} M1 \u{2014} Core\n").unwrap();
+
+        let mut sys = test_sys();
+        sys.execute(Command::RoadmapLoad {
+            path: roadmap.to_str().unwrap().into(),
+        });
+
+        sys.execute(Command::TaskSet {
+            id: "M1".into(),
+            status: Some("completed".into()),
+            title: None,
+            result: None,
+            agent: None,
+        });
+
+        let content = std::fs::read_to_string(&roadmap).unwrap();
+        assert!(content.contains("\u{2B24} M1 \u{2014} Core"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn task_set_without_status_does_not_write_back() {
+        let dir = roadmap_test_dir("set_no_writeback");
+        let roadmap = dir.join("Roadmap.md");
+        std::fs::write(&roadmap, "# \u{25EF} M1 \u{2014} Core\n").unwrap();
+
+        let mut sys = test_sys();
+        sys.execute(Command::RoadmapLoad {
+            path: roadmap.to_str().unwrap().into(),
+        });
+
+        sys.execute(Command::TaskSet {
+            id: "M1".into(),
+            status: None,
+            title: Some("Updated Core".into()),
+            result: None,
+            agent: None,
+        });
+
+        let content = std::fs::read_to_string(&roadmap).unwrap();
+        assert!(content.contains("\u{25EF} M1 \u{2014} Core"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn roadmap_load_missing_file_returns_error() {
+        let mut sys = test_sys();
+        let resp = sys.execute(Command::RoadmapLoad {
+            path: "/tmp/nonexistent_roadmap_xyz.md".into(),
+        });
+        assert!(matches!(resp, Response::Error { .. }));
+    }
+
+    #[test]
+    fn roadmap_cli_parse() {
+        let cmd = crate::cli::parse::parse_args(&["roadmap", "load", "/tmp/Roadmap.md"]).unwrap();
+        assert!(matches!(cmd, Command::RoadmapLoad { path } if path == "/tmp/Roadmap.md"));
     }
 }
