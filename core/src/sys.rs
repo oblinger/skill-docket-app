@@ -195,6 +195,16 @@ impl Sys {
         Ok(())
     }
 
+    /// Record that a spawning agent's process is confirmed ready.
+    /// Sets health to Healthy and status to Idle.
+    pub fn notify_agent_ready(&mut self, agent_name: &str) -> Result<(), String> {
+        let agent = self.data.agents_mut().get_mut(agent_name)
+            .ok_or_else(|| format!("agent '{}' not found", agent_name))?;
+        agent.health = HealthState::Healthy;
+        agent.status = AgentStatus::Idle;
+        Ok(())
+    }
+
     /// Borrow the data layer (for inspection in tests / external code).
     pub fn data(&self) -> &Data {
         &self.data
@@ -3180,6 +3190,35 @@ mod tests {
     fn notify_session_created_unknown_agent_errors() {
         let mut sys = test_sys();
         let result = sys.notify_session_created("nonexistent", "cmx-nope");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    // --- notify_agent_ready ---
+
+    #[test]
+    fn notify_agent_ready_sets_health_and_status() {
+        let mut sys = test_sys();
+        sys.execute(Command::AgentNew {
+            role: "worker".into(),
+            name: Some("w1".into()),
+            path: None,
+            agent_type: None,
+        });
+        // Agent starts with Unknown health
+        let a = sys.data().agents().get("w1").unwrap();
+        assert_eq!(a.health, HealthState::Unknown);
+
+        sys.notify_agent_ready("w1").unwrap();
+        let a = sys.data().agents().get("w1").unwrap();
+        assert_eq!(a.health, HealthState::Healthy);
+        assert_eq!(a.status, AgentStatus::Idle);
+    }
+
+    #[test]
+    fn notify_agent_ready_unknown_agent_errors() {
+        let mut sys = test_sys();
+        let result = sys.notify_agent_ready("nonexistent");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }

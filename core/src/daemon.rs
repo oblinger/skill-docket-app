@@ -19,6 +19,7 @@ use crate::convergence::executor::ConvergenceExecutor;
 use crate::convergence::retry::RetryPolicy;
 use crate::infrastructure::SessionBackend;
 use crate::infrastructure::mock::MockBackend;
+use crate::monitor::heartbeat;
 use crate::service::ServiceSocket;
 use crate::sys::Sys;
 use crate::types::config::BackoffStrategy;
@@ -105,6 +106,8 @@ pub struct Daemon {
     config: DaemonConfig,
     backend: Box<dyn SessionBackend + Send>,
     executor: ConvergenceExecutor,
+    /// Agents whose tmux sessions were created but haven't been confirmed ready yet.
+    spawning_agents: Vec<String>,
 }
 
 
@@ -142,6 +145,7 @@ impl Daemon {
             config,
             backend,
             executor,
+            spawning_agents: Vec::new(),
         })
     }
 
@@ -191,7 +195,10 @@ impl Daemon {
             return true;
         }
 
-        // 3. Expire stale watchers
+        // 3. Check spawning agents for ready-state detection
+        self.check_spawning_agents();
+
+        // 4. Expire stale watchers
         self.registry.expire_stale();
 
         false
@@ -246,11 +253,45 @@ impl Daemon {
             });
             if succeeded {
                 let _ = self.sys.notify_session_created(&agent_name, &sess_name);
+                self.spawning_agents.push(agent_name);
             }
         }
 
         for (action, err) in &result.failed {
             eprintln!("cmx daemon: action failed: {:?}: {}", action, err);
+        }
+    }
+
+    /// Poll spawning agents' panes to detect when they reach the ready prompt.
+    /// When detected, update agent health to Healthy and remove from spawning list.
+    fn check_spawning_agents(&mut self) {
+        if self.spawning_agents.is_empty() {
+            return;
+        }
+
+        let prompt_pattern = self.sys.settings().ready_prompt_pattern.clone();
+        let mut newly_ready = Vec::new();
+
+        for agent_name in &self.spawning_agents {
+            let session = match self.sys.data().agents().get(agent_name) {
+                Some(a) => match &a.session {
+                    Some(s) => s.clone(),
+                    None => continue,
+                },
+                None => continue,
+            };
+
+            if let Ok(output) = self.backend.capture_pane(&session) {
+                let result = heartbeat::parse_capture(&output, &prompt_pattern);
+                if result.state == heartbeat::AgentState::Ready {
+                    newly_ready.push(agent_name.clone());
+                }
+            }
+        }
+
+        for agent_name in &newly_ready {
+            let _ = self.sys.notify_agent_ready(agent_name);
+            self.spawning_agents.retain(|n| n != agent_name);
         }
     }
 
@@ -608,6 +649,131 @@ mod tests {
 
         // Agent should be gone
         assert!(daemon.sys().data().agents().get("k1").is_none());
+
+        daemon.service.shutdown_ref();
+        cleanup(&dir);
+    }
+
+    // --- spawn detection tests (MN.2.3 / MN.2.4) ---
+
+    /// Write a settings.yaml with a literal prompt pattern for substring matching.
+    fn write_test_settings(dir: &Path) {
+        let settings_content = "ready_prompt_pattern: \"$ \"\n";
+        std::fs::write(dir.join("settings.yaml"), settings_content).unwrap();
+    }
+
+    #[test]
+    fn daemon_spawn_detection_marks_agent_ready() {
+        let dir = test_config_dir();
+        write_test_settings(&dir);
+
+        // Pre-configure MockBackend with a ready prompt for the expected session
+        let mut mock = MockBackend::new();
+        mock.set_capture("cmx-sd1", "some output\n$ ");
+
+        let mut daemon = Daemon::with_backend(
+            &dir,
+            DaemonConfig { socket_poll_ms: 10 },
+            Box::new(mock),
+        )
+        .unwrap();
+        let handle = daemon.handle();
+
+        // Create agent — tick processes it, adds to spawning_agents, and
+        // check_spawning_agents runs in the same tick detecting the ready prompt.
+        handle
+            .send_command(
+                Command::AgentNew {
+                    role: "worker".into(),
+                    name: Some("sd1".into()),
+                    path: None,
+                    agent_type: None,
+                },
+                "test",
+            )
+            .unwrap();
+        daemon.tick();
+
+        // Agent was created, session assigned, and ready-state detected in one tick
+        let a = daemon.sys().data().agents().get("sd1").unwrap();
+        assert_eq!(a.session.as_deref(), Some("cmx-sd1"));
+        assert_eq!(a.health, crate::types::agent::HealthState::Healthy);
+        assert_eq!(a.status, crate::types::agent::AgentStatus::Idle);
+
+        daemon.service.shutdown_ref();
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn daemon_spawn_detection_waits_when_not_ready() {
+        let dir = test_config_dir();
+        write_test_settings(&dir);
+
+        // Backend has a capture that does NOT contain a ready prompt
+        let mut mock = MockBackend::new();
+        mock.set_capture("cmx-sd2", "Loading claude...\nPlease wait...");
+
+        let mut daemon = Daemon::with_backend(
+            &dir,
+            DaemonConfig { socket_poll_ms: 10 },
+            Box::new(mock),
+        )
+        .unwrap();
+        let handle = daemon.handle();
+
+        handle
+            .send_command(
+                Command::AgentNew {
+                    role: "worker".into(),
+                    name: Some("sd2".into()),
+                    path: None,
+                    agent_type: None,
+                },
+                "test",
+            )
+            .unwrap();
+        daemon.tick();
+
+        // Second tick — not ready yet, should stay Unknown
+        daemon.tick();
+
+        let a = daemon.sys().data().agents().get("sd2").unwrap();
+        assert_eq!(a.health, crate::types::agent::HealthState::Unknown);
+
+        daemon.service.shutdown_ref();
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn daemon_spawn_detection_no_capture_stays_spawning() {
+        let dir = test_config_dir();
+
+        // Backend has no capture at all for this session
+        let mut daemon = Daemon::with_backend(
+            &dir,
+            DaemonConfig { socket_poll_ms: 10 },
+            Box::new(MockBackend::new()),
+        )
+        .unwrap();
+        let handle = daemon.handle();
+
+        handle
+            .send_command(
+                Command::AgentNew {
+                    role: "worker".into(),
+                    name: Some("sd3".into()),
+                    path: None,
+                    agent_type: None,
+                },
+                "test",
+            )
+            .unwrap();
+        daemon.tick();
+        daemon.tick();
+
+        // Still Unknown — capture_pane returned Err so we skip
+        let a = daemon.sys().data().agents().get("sd3").unwrap();
+        assert_eq!(a.health, crate::types::agent::HealthState::Unknown);
 
         daemon.service.shutdown_ref();
         cleanup(&dir);
