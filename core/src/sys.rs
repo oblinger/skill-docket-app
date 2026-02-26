@@ -250,6 +250,34 @@ impl Sys {
         &self.library
     }
 
+    /// Mutable access to the message store (for monitor cycle delivery).
+    pub fn messages_mut(&mut self) -> &mut crate::data::messages::MessageStore {
+        self.data.messages_mut()
+    }
+
+    /// Apply a health assessment from the monitor cycle to an agent's state.
+    pub fn apply_health_update(&mut self, assessment: &crate::types::health::HealthAssessment) {
+        if let Some(agent) = self.data.agents_mut().get_mut(&assessment.agent) {
+            agent.health = assessment.overall.clone();
+            agent.last_heartbeat_ms = Some(assessment.timestamp_ms);
+            // Update status based on health
+            match &assessment.overall {
+                HealthState::Unhealthy => {
+                    if agent.status != AgentStatus::Dead {
+                        agent.status = AgentStatus::Stalled;
+                        agent.status_notes = assessment.reason.clone();
+                    }
+                }
+                HealthState::Degraded => {
+                    if agent.status == AgentStatus::Idle || agent.status == AgentStatus::Busy {
+                        agent.status_notes = assessment.reason.clone();
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// Build a `SystemSnapshot` capturing the current system state.
     pub fn build_snapshot(&self) -> crate::snapshot::state::SystemSnapshot {
         use crate::snapshot::state::{AgentSnapshot, SystemSnapshot, TaskSnapshot};

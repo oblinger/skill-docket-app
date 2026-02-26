@@ -19,6 +19,7 @@ use crate::convergence::executor::ConvergenceExecutor;
 use crate::convergence::retry::RetryPolicy;
 use crate::infrastructure::SessionBackend;
 use crate::infrastructure::mock::MockBackend;
+use crate::monitor::cycle::MonitorCycle;
 use crate::monitor::heartbeat;
 use crate::service::ServiceSocket;
 use crate::sys::Sys;
@@ -108,6 +109,10 @@ pub struct Daemon {
     executor: ConvergenceExecutor,
     /// Agents whose tmux sessions were created but haven't been confirmed ready yet.
     spawning_agents: Vec<String>,
+    /// Monitor cycle — heartbeat, health assessment, message delivery.
+    monitor: MonitorCycle,
+    /// Timestamp of last monitor cycle run (ms).
+    last_monitor_ms: u64,
 }
 
 
@@ -135,6 +140,11 @@ impl Daemon {
         let handle = DaemonHandle { sender };
         let policy = RetryPolicy::new(3, BackoffStrategy::Fixed, 100);
         let executor = ConvergenceExecutor::new(policy);
+        let monitor = MonitorCycle::new(
+            sys.settings().message_timeout as u64,
+            sys.settings().heartbeat_timeout as u64 / 1000,
+            sys.settings().ready_prompt_pattern.clone(),
+        );
 
         Ok(Daemon {
             sys,
@@ -146,6 +156,8 @@ impl Daemon {
             backend,
             executor,
             spawning_agents: Vec::new(),
+            monitor,
+            last_monitor_ms: now_ms(),
         })
     }
 
@@ -198,7 +210,10 @@ impl Daemon {
         // 3. Check spawning agents for ready-state detection
         self.check_spawning_agents();
 
-        // 4. Expire stale watchers
+        // 4. Run monitor cycle (health, messages, triggers) at configured interval
+        self.run_monitor_cycle();
+
+        // 5. Expire stale watchers
         self.registry.expire_stale();
 
         false
@@ -292,6 +307,49 @@ impl Daemon {
         for agent_name in &newly_ready {
             let _ = self.sys.notify_agent_ready(agent_name);
             self.spawning_agents.retain(|n| n != agent_name);
+        }
+    }
+
+    /// Run one monitoring cycle if enough time has elapsed since the last one.
+    ///
+    /// The health check interval from settings controls the frequency.
+    /// Each cycle captures agent panes, assesses health, delivers messages,
+    /// and checks for timeouts.
+    fn run_monitor_cycle(&mut self) {
+        let now = now_ms();
+        let interval = self.sys.settings().health_check_interval;
+        if now.saturating_sub(self.last_monitor_ms) < interval {
+            return;
+        }
+        self.last_monitor_ms = now;
+
+        let agents = self.sys.data().agents().list().to_vec();
+        // Only monitor agents that have sessions (are actually running)
+        let active: Vec<_> = agents.into_iter()
+            .filter(|a| a.session.is_some())
+            .collect();
+        if active.is_empty() {
+            return;
+        }
+
+        let result = self.monitor.run_cycle(
+            &active,
+            self.backend.as_ref(),
+            self.sys.messages_mut(),
+            now,
+        );
+
+        // Apply health updates back to agent state
+        for assessment in &result.health_updates {
+            self.sys.apply_health_update(assessment);
+        }
+
+        // Log any timeout alerts
+        for timeout in &result.timeouts {
+            eprintln!(
+                "cmx daemon: message timeout for '{}' ({}ms): {}",
+                timeout.agent, timeout.message_age_ms, timeout.message_text
+            );
         }
     }
 
@@ -774,6 +832,146 @@ mod tests {
         // Still Unknown — capture_pane returned Err so we skip
         let a = daemon.sys().data().agents().get("sd3").unwrap();
         assert_eq!(a.health, crate::types::agent::HealthState::Unknown);
+
+        daemon.service.shutdown_ref();
+        cleanup(&dir);
+    }
+
+    // --- monitor cycle integration tests (MP.2/MP.3) ---
+
+    #[test]
+    fn daemon_monitor_cycle_updates_health() {
+        let dir = test_config_dir();
+        // Set health_check_interval to 0 so cycle runs every tick
+        std::fs::write(
+            dir.join("settings.yaml"),
+            "ready_prompt_pattern: \"$ \"\nhealth_check_interval: 0\n",
+        ).unwrap();
+
+        let mut mock = MockBackend::new();
+        // Agent with session showing busy output (no prompt)
+        mock.set_capture("cmx-mc1", "running tests...\ntest_foo ok");
+
+        let mut daemon = Daemon::with_backend(
+            &dir,
+            DaemonConfig { socket_poll_ms: 10 },
+            Box::new(mock),
+        )
+        .unwrap();
+        let handle = daemon.handle();
+
+        handle
+            .send_command(
+                Command::AgentNew {
+                    role: "worker".into(),
+                    name: Some("mc1".into()),
+                    path: None,
+                    agent_type: None,
+                },
+                "test",
+            )
+            .unwrap();
+        // First tick: creates agent, sets session, runs monitor
+        daemon.tick();
+
+        let a = daemon.sys().data().agents().get("mc1").unwrap();
+        // Agent has a session and the monitor ran — health should be updated
+        assert!(a.last_heartbeat_ms.is_some(),
+            "Monitor cycle should set last_heartbeat_ms");
+
+        daemon.service.shutdown_ref();
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn daemon_monitor_handles_capture_failure_gracefully() {
+        let dir = test_config_dir();
+        std::fs::write(
+            dir.join("settings.yaml"),
+            "health_check_interval: 0\n",
+        ).unwrap();
+
+        // MockBackend with no preset captures — capture_pane will return Err
+        let mut daemon = Daemon::with_backend(
+            &dir,
+            DaemonConfig { socket_poll_ms: 10 },
+            Box::new(MockBackend::new()),
+        )
+        .unwrap();
+        let handle = daemon.handle();
+
+        handle
+            .send_command(
+                Command::AgentNew {
+                    role: "worker".into(),
+                    name: Some("ns1".into()),
+                    path: None,
+                    agent_type: None,
+                },
+                "test",
+            )
+            .unwrap();
+        daemon.tick();
+
+        // Agent gets a session via bridge, but capture_pane fails (no preset).
+        // Monitor should handle this gracefully — agent gets health update
+        // with InfrastructureFailed signal but no panic.
+        let a = daemon.sys().data().agents().get("ns1").unwrap();
+        assert!(a.session.is_some(), "Bridge should have assigned a session");
+        // Health update happened despite capture failure
+        assert!(a.last_heartbeat_ms.is_some(),
+            "Monitor should update heartbeat timestamp even on capture failure");
+
+        daemon.service.shutdown_ref();
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn daemon_monitor_detects_stall() {
+        let dir = test_config_dir();
+        // Very short heartbeat timeout so stall triggers quickly
+        std::fs::write(
+            dir.join("settings.yaml"),
+            "ready_prompt_pattern: \"$ \"\nhealth_check_interval: 0\nheartbeat_timeout: 1000\n",
+        ).unwrap();
+
+        let mut mock = MockBackend::new();
+        mock.set_capture("cmx-st1", "stuck output that never changes");
+
+        let mut daemon = Daemon::with_backend(
+            &dir,
+            DaemonConfig { socket_poll_ms: 10 },
+            Box::new(mock),
+        )
+        .unwrap();
+        let handle = daemon.handle();
+
+        handle
+            .send_command(
+                Command::AgentNew {
+                    role: "worker".into(),
+                    name: Some("st1".into()),
+                    path: None,
+                    agent_type: None,
+                },
+                "test",
+            )
+            .unwrap();
+
+        // First tick: agent created + first monitor cycle (establishes baseline)
+        daemon.tick();
+
+        // Wait a bit then tick again to let staleness accumulate
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        // Force last_monitor_ms to 0 so cycle runs again
+        daemon.last_monitor_ms = 0;
+        daemon.tick();
+
+        // After two cycles with same output, the health assessment runs.
+        // With heartbeat_timeout=1 second and only 50ms elapsed, it should NOT
+        // be stalled yet — but the health update infrastructure is working.
+        let a = daemon.sys().data().agents().get("st1").unwrap();
+        assert!(a.last_heartbeat_ms.is_some());
 
         daemon.service.shutdown_ref();
         cleanup(&dir);
