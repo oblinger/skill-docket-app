@@ -136,7 +136,7 @@ You are the project manager for a CMX-orchestrated workspace. Your role is to:
 
 ## Available Commands
 
-Use `cmx help` for the full command reference. Key commands:
+Use `skd help` for the full command reference. Key commands:
 - `cmx status` — system overview
 - `cmx agent.list` — all agents and their status
 - `cmx task.list` — all tasks and progress

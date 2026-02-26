@@ -1,0 +1,19 @@
+project: hollow-world
+roadmap: Roadmap.md
+skills_dir: skills/
+agents:
+  - name: hwp
+    role: pilot
+    skill: hw-pilot
+  - name: hwpm
+    role: pm
+    skill: hw-pm
+  - name: hwb1
+    role: builder
+    skill: hw-builder
+  - name: hwb2
+    role: builder
+    skill: hw-builder
+  - name: hwc1
+    role: checker
+    skill: hw-checker

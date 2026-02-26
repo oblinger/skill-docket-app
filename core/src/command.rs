@@ -579,6 +579,11 @@ pub enum Command {
     /// Request a running daemon to shut down gracefully.
     #[serde(rename = "daemon.stop")]
     DaemonStop,
+
+    /// Launch the terminal UI. Handled by the CLI binary, not the daemon.
+    #[serde(rename = "tui")]
+    Tui,
+
     // -----------------------------------------------------------------
     // Help
     // -----------------------------------------------------------------
