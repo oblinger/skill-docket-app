@@ -200,11 +200,12 @@ tmux select-pane -t "$PANE_WORKER2" -T "demo1-worker2"
 tmux select-pane -t "$PANE_CHECKER" -T "demo1-checker"
 
 # Link panes to agents so daemon can monitor heartbeats
-skd layout place "$PANE_PILOT"   demo1-pilot
-skd layout place "$PANE_PM"      demo1-pm
-skd layout place "$PANE_WORKER1" demo1-worker1
-skd layout place "$PANE_WORKER2" demo1-worker2
-skd layout place "$PANE_CHECKER" demo1-checker
+# layout commands are handled by mux (MuxUX), not skd
+mux layout place "$PANE_PILOT"   demo1-pilot
+mux layout place "$PANE_PM"      demo1-pm
+mux layout place "$PANE_WORKER1" demo1-worker1
+mux layout place "$PANE_WORKER2" demo1-worker2
+mux layout place "$PANE_CHECKER" demo1-checker
 
 # ── Launch TUI ───────────────────────────────────────────────────
 log "Launching TUI..."
