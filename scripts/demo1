@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # demo1 — Full system exercise for Skill Docket + Hollow World
 #
+# Creates a 6-pane tmux session via MuxUX with signal-driven mock agents.
+#
 # Usage: demo1 [--mock|--live|--clean|--help]
 set -euo pipefail
 
@@ -15,6 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" && pwd)"
 SKD_REPO="$(cd "$SCRIPT_DIR/.." && pwd)"
 HW_DIR="$SKD_REPO/tests/hollow-world"
 SESSION="Demo1"
+SIGNALS_DIR="/tmp/demo1-signals"
 
 # ── Colors ─────────────────────────────────────────────────────────
 bold=$(tput bold 2>/dev/null || true)
@@ -37,7 +40,7 @@ case "${1:-}" in
     echo "Usage: demo1 [--mock|--live|--clean|--help]"
     echo ""
     echo "  --live   (default) Launch real Claude agents in panes"
-    echo "  --mock   Run with scripted mock agents"
+    echo "  --mock   Run with scripted mock agents (6 panes, signal-driven)"
     echo "  --clean  Tear down Demo1 session and stop daemon"
     echo "  --help   Show this message"
     exit 0
@@ -62,14 +65,22 @@ safe_kill_session() {
 cleanup() {
   log "Cleaning up..."
   safe_kill_session "$SESSION"
+  # Kill all agents (demo1-* and auto-created hw*)
+  for agent in demo1-pilot demo1-pm demo1-worker1 demo1-worker2 demo1-checker hwp hwpm hwb1 hwb2 hwc1; do
+    skd agent kill "$agent" 2>/dev/null || true
+  done
+  skd project remove hollow-world 2>/dev/null || true
   skd daemon stop 2>/dev/null && log "Stopped daemon" || true
-  # Remove stale socket/pid
   local config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/skd"
   rm -f "$config_dir/cmx.sock" "$config_dir/skd.pid" 2>/dev/null || true
-  # Clean up build artifacts from demo
+  # Clean up build artifacts
   rm -f "$HW_DIR"/02_build_component_alpha/alpha.built 2>/dev/null || true
   rm -f "$HW_DIR"/03_build_component_beta/beta.built 2>/dev/null || true
   rm -f "$HW_DIR"/04_integration_check/integration.verified 2>/dev/null || true
+  # Clean up signal directory
+  rm -rf "$SIGNALS_DIR" 2>/dev/null || true
+  # Restore Roadmap.md (skd task set writes status markers back to the file)
+  (cd "$SKD_REPO" && git checkout tests/hollow-world/Roadmap.md 2>/dev/null) || true
   log "Clean complete."
 }
 
@@ -91,146 +102,337 @@ if ! command -v skd &>/dev/null; then
   log "Built and installed skd"
 fi
 
+# mux layout session is currently broken (queues but never creates).
+# Using tmux new-session directly until MuxUX session creation is fixed.
+
 # ── Cleanup any prior run ─────────────────────────────────────────
 safe_kill_session "$SESSION"
+# Kill all agents (demo1-* and auto-created hw*)
+for agent in demo1-pilot demo1-pm demo1-worker1 demo1-worker2 demo1-checker hwp hwpm hwb1 hwb2 hwc1; do
+  skd agent kill "$agent" 2>/dev/null || true
+done
+skd project remove hollow-world 2>/dev/null || true
 skd daemon stop 2>/dev/null || true
 rm -f "$HW_DIR"/02_build_component_alpha/alpha.built 2>/dev/null || true
 rm -f "$HW_DIR"/03_build_component_beta/beta.built 2>/dev/null || true
 rm -f "$HW_DIR"/04_integration_check/integration.verified 2>/dev/null || true
+rm -rf "$SIGNALS_DIR" 2>/dev/null || true
+(cd "$SKD_REPO" && git checkout tests/hollow-world/Roadmap.md 2>/dev/null) || true
 sleep 0.5
 
-# ── Start daemon (auto-started by first skd command) ──────────────
+# ── Create signal directory ──────────────────────────────────────
+mkdir -p "$SIGNALS_DIR"
+
+# ── Start daemon ─────────────────────────────────────────────────
 log "Starting daemon..."
 skd status >/dev/null 2>&1 || { err "Daemon failed to start"; exit 1; }
 log "Daemon running."
 
 # ── Register project + create agents ─────────────────────────────
+# Remove stale project state from any prior run, then re-add fresh
+skd project remove hollow-world 2>/dev/null || true
 log "Registering hollow-world project..."
 skd project add hollow-world "$HW_DIR" || true
 
 log "Scanning project for tasks..."
 skd project scan hollow-world || true
 
-# Agents are auto-created from .skilldocket by project add.
-# Create them only if project add didn't (older binary).
-if ! skd agent list 2>/dev/null | grep -q hwp; then
-  log "Creating agents..."
-  skd agent new pilot --name hwp || true
-  skd agent new pm --name hwpm || true
-  skd agent new builder --name hwb1 || true
-  skd agent new builder --name hwb2 || true
-  skd agent new checker --name hwc1 || true
-fi
+# Kill auto-created agents from .skilldocket (declutter TUI)
+for old_agent in hwp hwpm hwb1 hwb2 hwc1; do
+  skd agent kill "$old_agent" 2>/dev/null || true
+done
+
+# Create agents with demo1- prefix
+AGENTS=("demo1-pilot:pilot" "demo1-pm:pm" "demo1-worker1:builder" "demo1-worker2:builder" "demo1-checker:checker")
+for spec in "${AGENTS[@]}"; do
+  IFS=: read -r name role <<< "$spec"
+  if ! skd agent list 2>/dev/null | grep -q "$name"; then
+    skd agent new "$role" --name "$name" || true
+  fi
+done
 
 log "Verifying setup..."
 skd task list || true
 skd agent list || true
 
-# ── Detect tmux base indices ─────────────────────────────────────
-WIN_BASE=$(tmux show-options -gv base-index 2>/dev/null || echo 0)
-PANE_BASE=$(tmux show-options -gv pane-base-index 2>/dev/null || echo 0)
-W=$WIN_BASE
-P0=$PANE_BASE
-P1=$((PANE_BASE + 1))
-P2=$((PANE_BASE + 2))
-P3=$((PANE_BASE + 3))
-
-# ── Create tmux layout ────────────────────────────────────────────
-# Layout:
-#   top    SKD TUI       (60%)
-#   bot-L  Pilot (hwp)   (33%)
-#   bot-M  Builder1 (hwb1) (33%)
-#   bot-R  Builder2 (hwb2) (33%)
+# ── Create tmux layout via MuxUX ─────────────────────────────────
+# Layout (6 panes):
+#   +--------------------------------------------------+
+#   |                  SKD TUI (40%)                    |
+#   +-------------------------+------------------------+
+#   |   demo1-pilot (50%)     |    demo1-pm (50%)      |
+#   +----------+--------------+-----------+------------+
+#   | demo1-worker1 (33%)  | demo1-worker2 (33%) | demo1-checker (34%) |
+#   +----------------------+---------------------+---------------------+
 
 log "Creating tmux session: $SESSION"
-tmux new-session -d -s "$SESSION" -x 200 -y 50
+tmux new-session -d -s "$SESSION" -x 200 -y 50 -c "$HW_DIR"
 
-# Split: top 60% / bottom 40%
-tmux split-window -t "$SESSION:$W.$P0" -v -p 40
+# Capture the initial pane ID
+PANE_TUI=$(tmux list-panes -t "$SESSION" -F '#{pane_id}' | head -1)
 
-# Split bottom into 3 columns
-tmux split-window -t "$SESSION:$W.$P1" -h -p 67
-tmux split-window -t "$SESSION:$W.$P2" -h -p 50
+# Split: top 40% (TUI) / bottom 60%
+PANE_MID=$(tmux split-window -t "$PANE_TUI" -v -p 60 -P -F '#{pane_id}')
+
+# Split bottom 60% into middle 50% / bottom 50% (each ~30% of total)
+PANE_BOT=$(tmux split-window -t "$PANE_MID" -v -p 50 -P -F '#{pane_id}')
+
+# Split middle row: pilot (left 50%) / PM (right 50%)
+PANE_PM=$(tmux split-window -t "$PANE_MID" -h -p 50 -P -F '#{pane_id}')
+PANE_PILOT="$PANE_MID"
+
+# Split bottom row into 3 columns
+PANE_REST=$(tmux split-window -t "$PANE_BOT" -h -p 67 -P -F '#{pane_id}')
+PANE_WORKER1="$PANE_BOT"
+PANE_CHECKER=$(tmux split-window -t "$PANE_REST" -h -p 50 -P -F '#{pane_id}')
+PANE_WORKER2="$PANE_REST"
 
 # Enable pane border status with titles
 tmux set-option -t "$SESSION" pane-border-status top 2>/dev/null || true
 tmux set-option -t "$SESSION" pane-border-format " #{pane_title} " 2>/dev/null || true
 
 # Set pane titles
-tmux select-pane -t "$SESSION:$W.$P0" -T "SKD TUI"
-tmux select-pane -t "$SESSION:$W.$P1" -T "Pilot (hwp)"
-tmux select-pane -t "$SESSION:$W.$P2" -T "Builder1 (hwb1)"
-tmux select-pane -t "$SESSION:$W.$P3" -T "Builder2 (hwb2)"
+tmux select-pane -t "$PANE_TUI"     -T "SKD TUI"
+tmux select-pane -t "$PANE_PILOT"   -T "demo1-pilot"
+tmux select-pane -t "$PANE_PM"      -T "demo1-pm"
+tmux select-pane -t "$PANE_WORKER1" -T "demo1-worker1"
+tmux select-pane -t "$PANE_WORKER2" -T "demo1-worker2"
+tmux select-pane -t "$PANE_CHECKER" -T "demo1-checker"
 
-# ── Launch TUI ─────────────────────────────────────────────────────
+# Link panes to agents so daemon can monitor heartbeats
+skd layout place "$PANE_PILOT"   demo1-pilot
+skd layout place "$PANE_PM"      demo1-pm
+skd layout place "$PANE_WORKER1" demo1-worker1
+skd layout place "$PANE_WORKER2" demo1-worker2
+skd layout place "$PANE_CHECKER" demo1-checker
+
+# ── Launch TUI ───────────────────────────────────────────────────
 log "Launching TUI..."
-tmux send-keys -t "$SESSION:$W.$P0" "skd tui" Enter
-
-# Give TUI a moment to start
+tmux send-keys -t "$PANE_TUI" "skd tui" Enter
 sleep 1
 
-# ── Launch agents ──────────────────────────────────────────────────
+# ── Launch agents ────────────────────────────────────────────────
 MOCK_AGENT="$SCRIPT_DIR/mock-agent.sh"
 
 if [[ "$MODE" == "mock" ]]; then
-  log "Launching mock agents..."
-  tmux send-keys -t "$SESSION:$W.$P1" "$MOCK_AGENT hwp pilot $HW_DIR" Enter
-  tmux send-keys -t "$SESSION:$W.$P2" "$MOCK_AGENT hwb1 builder $HW_DIR" Enter
-  tmux send-keys -t "$SESSION:$W.$P3" "$MOCK_AGENT hwb2 builder $HW_DIR" Enter
-
-  # Headless agents (PM and checker) — run in background
-  log "Starting headless agents (hwpm, hwc1)..."
-  nohup "$MOCK_AGENT" hwpm pm "$HW_DIR" >/tmp/demo1-hwpm.log 2>&1 &
-  nohup "$MOCK_AGENT" hwc1 checker "$HW_DIR" >/tmp/demo1-hwc1.log 2>&1 &
+  log "Launching mock agents (signal-driven, 6 panes)..."
+  tmux send-keys -t "$PANE_PILOT"   "$MOCK_AGENT demo1-pilot pilot $HW_DIR --signals-dir $SIGNALS_DIR --wait-for-start" Enter
+  tmux send-keys -t "$PANE_PM"      "$MOCK_AGENT demo1-pm pm $HW_DIR --signals-dir $SIGNALS_DIR" Enter
+  tmux send-keys -t "$PANE_WORKER1" "$MOCK_AGENT demo1-worker1 builder $HW_DIR --signals-dir $SIGNALS_DIR" Enter
+  tmux send-keys -t "$PANE_WORKER2" "$MOCK_AGENT demo1-worker2 builder $HW_DIR --signals-dir $SIGNALS_DIR" Enter
+  tmux send-keys -t "$PANE_CHECKER" "$MOCK_AGENT demo1-checker checker $HW_DIR --signals-dir $SIGNALS_DIR" Enter
 
 elif [[ "$MODE" == "live" ]]; then
-  log "Launching live Claude agents..."
+  log "Launching live Claude agents (5 panes)..."
 
   # Write system prompts to temp files (avoids shell quoting issues)
   PROMPT_DIR="$TMPDIR/demo1-prompts"
   mkdir -p "$PROMPT_DIR"
 
-  write_agent_prompt() {
-    local name="$1" role="$2" skill="$3"
-    cat > "$PROMPT_DIR/$name.txt" <<PROMPT
-You are agent "$name" (role: $role) in the Hollow World demo project.
-Your working directory is $HW_DIR.
-Read your skill instructions in skills/$skill.md — they define your workflow.
-Use skd CLI commands to interact: skd task list, skd tell <agent> <msg>, skd task set <id> status=<status>, skd agent list.
-Task IDs are numeric (1-5): 1=setup infrastructure, 2=build component alpha, 3=build component beta, 4=integration check, 5=final signoff.
-Agent names: hwp (pilot), hwpm (PM), hwb1 (builder), hwb2 (builder), hwc1 (checker).
-Coordinate with other agents via skd tell. Begin by reading your skill file and running skd task list.
-PROMPT
-  }
+  # ── Pilot prompt: prescriptive delegation workflow ──
+  cat > "$PROMPT_DIR/demo1-pilot.txt" <<'PILOTPROMPT'
+You are demo1-pilot in the Hollow World demo. Working directory: tests/hollow-world/.
 
-  # Visible agents in panes
-  for agent_spec in "hwp:pilot:hw-pilot:$P1" "hwb1:builder:hw-builder:$P2" "hwb2:builder:hw-builder:$P3"; do
-    IFS=: read -r name role skill pane <<< "$agent_spec"
-    write_agent_prompt "$name" "$role" "$skill"
-    tmux send-keys -t "$SESSION:$W.$pane" \
-      "cd $HW_DIR && claude --dangerously-skip-permissions --append-system-prompt \"\$(cat $PROMPT_DIR/$name.txt)\" \"Read skills/$skill.md, then run skd task list. Follow your role workflow.\"" Enter
-  done
+Agent names (use ONLY these):
+  demo1-pilot (you), demo1-pm, demo1-worker1, demo1-worker2, demo1-checker
 
-  # Auto-accept workspace trust prompts (Enter selects "Yes, I trust this folder")
-  sleep 3
-  for pane in $P1 $P2 $P3; do
-    tmux send-keys -t "$SESSION:$W.$pane" Enter
-  done
+Commands:
+  skd task list — view tasks
+  skd task set <id> status=<status> — update task status
+  skd tell <agent> "<msg>" — send message to another agent
+  skd agent list — check health
 
-  # Headless PM and checker — run in print mode in background
-  log "Starting headless agents (hwpm, hwc1)..."
-  for agent_spec in "hwpm:pm:hw-pm" "hwc1:checker:hw-checker"; do
-    IFS=: read -r name role skill <<< "$agent_spec"
-    write_agent_prompt "$name" "$role" "$skill"
-    (cd "$HW_DIR" && claude --dangerously-skip-permissions \
-      --append-system-prompt "$(cat "$PROMPT_DIR/$name.txt")" \
-      -p "Read skills/$skill.md, then run skd task list. Follow your role workflow until all tasks are complete." \
-      > /tmp/demo1-$name.log 2>&1) &
+WORKFLOW (execute ONLY after user says "start"):
+
+Step 1 — HW1 Setup (handle directly):
+  Run: skd task set HW1 status=in_progress
+  Run: skd task set HW1.1 status=completed
+  Run: skd task set HW1.2 status=completed
+  Run: skd task set HW1.3 status=completed
+  Run: skd task set HW1 status=completed
+
+Step 2 — HW2 Build (DELEGATE to PM):
+  Run: skd task set HW2 status=in_progress
+  Run: skd tell demo1-pm "Start HW2: dispatch builders to build Alpha and Beta"
+  Then poll with: while true; do skd task list 2>/dev/null | grep -E 'HW2\.(1|2)' && sleep 10; done
+  Stop polling when both HW2.1 and HW2.2 show completed.
+  Run: skd task set HW2 status=completed
+
+Step 3 — HW3 Integration (DELEGATE to PM):
+  Run: skd task set HW3 status=in_progress
+  Run: skd tell demo1-pm "Start HW3: dispatch checker for integration verification"
+  Poll until HW3.1 and HW3.2 show completed.
+  Run: skd task set HW3 status=completed
+
+Step 4 — HW4 Signoff (handle directly):
+  Run: skd task set HW4 status=in_progress
+  Run: skd task set HW4.1 status=completed
+  Run: skd task set HW4.2 status=completed
+  Run: skd task set HW4 status=completed
+  Print: "ALL MILESTONES COMPLETE"
+
+RULES:
+- You MUST delegate HW2 and HW3 via skd tell to demo1-pm. Do NOT build artifacts yourself.
+- Do NOT create files. Only run skd commands.
+- After each step, run skd task list to confirm status.
+- Keep output concise.
+PILOTPROMPT
+
+  # ── PM prompt: react to messages from pilot ──
+  cat > "$PROMPT_DIR/demo1-pm.txt" <<'PMPROMPT'
+You are demo1-pm (project manager) in the Hollow World demo. Working directory: tests/hollow-world/.
+
+Agent names (use ONLY these):
+  demo1-pilot, demo1-pm (you), demo1-worker1, demo1-worker2, demo1-checker
+
+Commands:
+  skd task list, skd task set <id> status=<status>
+  skd tell <agent> "<msg>", skd agent assign <agent> <task-id>, skd agent list
+
+INITIAL SETUP:
+  Run: skd task list
+  Then STOP and return to prompt. Wait for messages.
+
+Messages will arrive as user input from demo1-pilot.
+
+When told "Start HW2":
+  Run: skd agent assign demo1-worker1 HW2.1
+  Run: skd tell demo1-worker1 "Build component Alpha: create alpha.built in 02_build_component_alpha/"
+  Run: skd agent assign demo1-worker2 HW2.2
+  Run: skd tell demo1-worker2 "Build component Beta: create beta.built in 03_build_component_beta/"
+  Run: skd task set HW2.1 status=in_progress
+  Run: skd task set HW2.2 status=in_progress
+  Poll with: while true; do skd task list 2>/dev/null | grep -E 'HW2\.(1|2)' && sleep 8; done
+  When both completed: skd tell demo1-pilot "HW2 complete — both components built"
+  Then STOP and return to prompt.
+
+When told "Start HW3":
+  Run: skd agent assign demo1-checker HW3.1
+  Run: skd tell demo1-checker "Verify integration: check alpha.built and beta.built exist, create integration.verified in 04_integration_check/"
+  Run: skd task set HW3.1 status=in_progress
+  Poll until HW3.1 completed.
+  Run: skd task set HW3.2 status=completed
+  Run: skd tell demo1-pilot "HW3 complete — integration verified"
+  Then STOP and return to prompt.
+
+RULES:
+- Do NOT create files. Only run skd commands.
+- After dispatching, poll skd task list until subtasks show completed.
+- Keep output concise.
+PMPROMPT
+
+  # ── Worker1 prompt: build Alpha when told ──
+  cat > "$PROMPT_DIR/demo1-worker1.txt" <<'W1PROMPT'
+You are demo1-worker1 (builder) in the Hollow World demo. Working directory: tests/hollow-world/.
+
+Commands:
+  skd task set <id> status=<status>, skd tell <agent> "<msg>"
+
+INITIAL SETUP:
+  Run: skd task list
+  Then STOP and return to prompt. Wait for messages.
+
+When told to build Alpha:
+  Run: mkdir -p 02_build_component_alpha
+  Create file 02_build_component_alpha/alpha.built with contents:
+    agent: demo1-worker1
+    component: alpha
+    timestamp: (current UTC time)
+    status: success
+  Run: skd task set HW2.1 status=completed
+  Run: skd tell demo1-pm "Task HW2.1 done — alpha built successfully"
+  Then STOP and return to prompt.
+
+RULES:
+- Only act when you receive a message telling you to build.
+- Keep output concise.
+W1PROMPT
+
+  # ── Worker2 prompt: build Beta when told ──
+  cat > "$PROMPT_DIR/demo1-worker2.txt" <<'W2PROMPT'
+You are demo1-worker2 (builder) in the Hollow World demo. Working directory: tests/hollow-world/.
+
+Commands:
+  skd task set <id> status=<status>, skd tell <agent> "<msg>"
+
+INITIAL SETUP:
+  Run: skd task list
+  Then STOP and return to prompt. Wait for messages.
+
+When told to build Beta:
+  Run: mkdir -p 03_build_component_beta
+  Create file 03_build_component_beta/beta.built with contents:
+    agent: demo1-worker2
+    component: beta
+    timestamp: (current UTC time)
+    status: success
+  Run: skd task set HW2.2 status=completed
+  Run: skd tell demo1-pm "Task HW2.2 done — beta built successfully"
+  Then STOP and return to prompt.
+
+RULES:
+- Only act when you receive a message telling you to build.
+- Keep output concise.
+W2PROMPT
+
+  # ── Checker prompt: verify when told ──
+  cat > "$PROMPT_DIR/demo1-checker.txt" <<'CHKPROMPT'
+You are demo1-checker (checker) in the Hollow World demo. Working directory: tests/hollow-world/.
+
+Commands:
+  skd task set <id> status=<status>, skd tell <agent> "<msg>"
+
+INITIAL SETUP:
+  Run: skd task list
+  Then STOP and return to prompt. Wait for messages.
+
+When told to verify integration:
+  Check that 02_build_component_alpha/alpha.built exists
+  Check that 03_build_component_beta/beta.built exists
+  Run: mkdir -p 04_integration_check
+  Create file 04_integration_check/integration.verified with contents:
+    checker: demo1-checker
+    timestamp: (current UTC time)
+    alpha: present (or missing)
+    beta: present (or missing)
+    result: pass (if both present) or fail
+  Run: skd task set HW3.1 status=completed
+  Run: skd tell demo1-pm "Verification complete — integration check passed"
+  Then STOP and return to prompt.
+
+RULES:
+- Only act when you receive a message telling you to verify.
+- Keep output concise.
+CHKPROMPT
+
+  # Launch pilot — interactive, waits for user to say "start"
+  tmux send-keys -t "$PANE_PILOT" \
+    "cd $HW_DIR && claude --dangerously-skip-permissions --append-system-prompt \"\$(cat $PROMPT_DIR/demo1-pilot.txt)\" \"Run skd task list to see the project state. Then wait — do NOT begin the workflow until I type 'start'.\"" Enter
+
+  # Launch PM — does initial setup, then returns to prompt
+  tmux send-keys -t "$PANE_PM" \
+    "cd $HW_DIR && claude --dangerously-skip-permissions --append-system-prompt \"\$(cat $PROMPT_DIR/demo1-pm.txt)\" \"Run skd task list, then stop and wait for messages from demo1-pilot.\"" Enter
+
+  # Launch builders — setup, then return to prompt
+  tmux send-keys -t "$PANE_WORKER1" \
+    "cd $HW_DIR && claude --dangerously-skip-permissions --append-system-prompt \"\$(cat $PROMPT_DIR/demo1-worker1.txt)\" \"Run skd task list, then stop and wait for a build assignment from demo1-pm.\"" Enter
+
+  tmux send-keys -t "$PANE_WORKER2" \
+    "cd $HW_DIR && claude --dangerously-skip-permissions --append-system-prompt \"\$(cat $PROMPT_DIR/demo1-worker2.txt)\" \"Run skd task list, then stop and wait for a build assignment from demo1-pm.\"" Enter
+
+  # Launch checker — setup, then returns to prompt
+  tmux send-keys -t "$PANE_CHECKER" \
+    "cd $HW_DIR && claude --dangerously-skip-permissions --append-system-prompt \"\$(cat $PROMPT_DIR/demo1-checker.txt)\" \"Run skd task list, then stop and wait for a verification assignment from demo1-pm.\"" Enter
+
+  # Auto-accept workspace trust prompts
+  sleep 4
+  for pane in "$PANE_PILOT" "$PANE_PM" "$PANE_WORKER1" "$PANE_WORKER2" "$PANE_CHECKER"; do
+    tmux send-keys -t "$pane" Enter
   done
 fi
 
-# ── Attach ─────────────────────────────────────────────────────────
-tmux select-pane -t "$SESSION:$W.$P0"
+# ── Attach ───────────────────────────────────────────────────────
+tmux select-pane -t "$PANE_TUI"
 if [[ -n "${TMUX:-}" ]]; then
   log "Demo1 session ready. Switch to it with: tmux switch-client -t $SESSION"
 else
