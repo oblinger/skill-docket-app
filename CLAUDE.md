@@ -9,7 +9,7 @@ Skill Docket App (SKD) — the task orchestration daemon for ClaudiMux. Monitors
 ## Build & Test
 
 ```bash
-cargo test                              # All tests (~1,763 tests, ~0.5s)
+cargo test                              # All tests (~1,796 tests, ~0.5s)
 cargo test -p skill-docket-core         # Core crate only
 cargo test -p skd-cli                   # CLI crate only
 cargo test -p skd-tui                   # TUI crate only
