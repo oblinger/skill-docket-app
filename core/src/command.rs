@@ -32,6 +32,7 @@
 //! | Rig | `rig.init`, `rig.push`, `rig.pull`, `rig.status`, `rig.health`, `rig.stop`, `rig.list`, `rig.default` |
 //! | Diagnosis | `diagnosis.report`, `diagnosis.reliability`, `diagnosis.effectiveness`, `diagnosis.thresholds`, `diagnosis.events` |
 //! | History | `history.list`, `history.show`, `history.diff`, `history.restore`, `history.snapshot`, `history.prune` |
+//! | Learnings | `learnings.list`, `learnings.add`, `learnings.search` |
 //! | Watch | `watch` |
 //! | Daemon | `daemon.run`, `daemon.stop` |
 
@@ -590,6 +591,39 @@ pub enum Command {
     /// Launch the terminal UI. Handled by the CLI binary, not the daemon.
     #[serde(rename = "tui")]
     Tui,
+
+    // -----------------------------------------------------------------
+    // Learnings commands
+    // -----------------------------------------------------------------
+
+    /// List learning entries, optionally filtered by project or tag.
+    #[serde(rename = "learnings.list")]
+    LearningsList {
+        /// Filter to entries from this project.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        project: Option<String>,
+        /// Filter to entries with this tag.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tag: Option<String>,
+    },
+
+    /// Add a new learning entry to a project's LEARNINGS.md.
+    #[serde(rename = "learnings.add")]
+    LearningsAdd {
+        /// Project name (must be registered in folder registry).
+        project: String,
+        /// Short title for the entry.
+        title: String,
+        /// Body text explaining the learning.
+        body: String,
+    },
+
+    /// Full-text search across all projects' LEARNINGS.md files.
+    #[serde(rename = "learnings.search")]
+    LearningsSearch {
+        /// Search query (case-insensitive substring match).
+        query: String,
+    },
 
     // -----------------------------------------------------------------
     // Help
@@ -1411,8 +1445,11 @@ mod tests {
             r#"{"command":"history.restore","id":"0"}"#,
             r#"{"command":"history.snapshot"}"#,
             r#"{"command":"history.prune"}"#,
+            r#"{"command":"learnings.list"}"#,
+            r#"{"command":"learnings.add","project":"p","title":"t","body":"b"}"#,
+            r#"{"command":"learnings.search","query":"q"}"#,
             r#"{"command":"watch"}"#,
-                        r#"{"command":"help"}"#,
+            r#"{"command":"help"}"#,
             r#"{"command":"daemon.run"}"#,
             r#"{"command":"daemon.stop"}"#,
         ];
@@ -1479,6 +1516,56 @@ mod tests {
         let cmd = Command::DaemonStop;
         let json = serde_json::to_string(&cmd).unwrap();
         assert!(json.contains(r#""command":"daemon.stop""#));
+        let back: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, cmd);
+    }
+
+    // --- Learnings command round-trips ---
+
+    #[test]
+    fn learnings_list_round_trip() {
+        let cmd = Command::LearningsList {
+            project: Some("myproj".into()),
+            tag: Some("testing".into()),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains(r#""command":"learnings.list""#));
+        assert!(json.contains(r#""project":"myproj""#));
+        assert!(json.contains(r#""tag":"testing""#));
+        let back: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, cmd);
+    }
+
+    #[test]
+    fn learnings_list_no_args() {
+        let json = r#"{"command":"learnings.list"}"#;
+        let cmd: Command = serde_json::from_str(json).unwrap();
+        assert_eq!(cmd, Command::LearningsList { project: None, tag: None });
+    }
+
+    #[test]
+    fn learnings_add_round_trip() {
+        let cmd = Command::LearningsAdd {
+            project: "myproj".into(),
+            title: "Tests need flag".into(),
+            body: "Use --no-parallel.".into(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains(r#""command":"learnings.add""#));
+        assert!(json.contains(r#""project":"myproj""#));
+        assert!(json.contains(r#""title":"Tests need flag""#));
+        let back: Command = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, cmd);
+    }
+
+    #[test]
+    fn learnings_search_round_trip() {
+        let cmd = Command::LearningsSearch {
+            query: "rate limit".into(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        assert!(json.contains(r#""command":"learnings.search""#));
+        assert!(json.contains(r#""query":"rate limit""#));
         let back: Command = serde_json::from_str(&json).unwrap();
         assert_eq!(back, cmd);
     }

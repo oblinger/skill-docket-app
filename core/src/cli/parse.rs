@@ -31,6 +31,7 @@ pub fn parse_args(args: &[&str]) -> Result<Command, String> {
         "rig" => parse_rig(args),
         "diagnosis" => parse_diagnosis(args),
         "history" => parse_history(args),
+        "learnings" => parse_learnings(args),
         "daemon" => parse_daemon(args),
         "watch" => parse_watch(args),
         "tui" => Ok(Command::Tui),
@@ -879,6 +880,65 @@ fn parse_daemon(args: &[&str]) -> Result<Command, String> {
     }
 }
 
+/// `cmx learnings <list|add|search>`
+fn parse_learnings(args: &[&str]) -> Result<Command, String> {
+    if args.len() < 2 {
+        return Err("Usage: cmx learnings <list|add|search>".into());
+    }
+    match args[1] {
+        "list" => parse_learnings_list(args),
+        "add" => parse_learnings_add(args),
+        "search" => parse_learnings_search(args),
+        _ => Err(format!("Unknown learnings subcommand: '{}'", args[1])),
+    }
+}
+
+/// `cmx learnings list [--project <name>] [--tag <tag>]`
+fn parse_learnings_list(args: &[&str]) -> Result<Command, String> {
+    let mut project = None;
+    let mut tag = None;
+    let rest = &args[2..];
+    let mut i = 0;
+    while i < rest.len() {
+        match rest[i] {
+            "--project" => {
+                i += 1;
+                project = Some(take_arg(rest, i, "--project")?);
+            }
+            "--tag" => {
+                i += 1;
+                tag = Some(take_arg(rest, i, "--tag")?);
+            }
+            other => return Err(format!("Unknown flag for learnings list: '{}'", other)),
+        }
+        i += 1;
+    }
+    Ok(Command::LearningsList { project, tag })
+}
+
+/// `cmx learnings add <project> <title> <body>`
+fn parse_learnings_add(args: &[&str]) -> Result<Command, String> {
+    if args.len() < 5 {
+        return Err("Usage: cmx learnings add <project> <title> <body>".into());
+    }
+    Ok(Command::LearningsAdd {
+        project: args[2].into(),
+        title: args[3].into(),
+        body: args[4..].join(" "),
+    })
+}
+
+/// `cmx learnings search <query>`
+fn parse_learnings_search(args: &[&str]) -> Result<Command, String> {
+    if args.len() < 3 {
+        return Err("Usage: cmx learnings search <query>".into());
+    }
+    Ok(Command::LearningsSearch {
+        query: args[2..].join(" "),
+    })
+}
+
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -1725,5 +1785,90 @@ mod tests {
         let result = parse_args(&["daemon", "restart"]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Unknown daemon subcommand"));
+    }
+
+    // --- Learnings ---
+
+    #[test]
+    fn learnings_list_no_flags() {
+        let cmd = parse_args(&["learnings", "list"]).unwrap();
+        assert_eq!(cmd, Command::LearningsList { project: None, tag: None });
+    }
+
+    #[test]
+    fn learnings_list_with_project() {
+        let cmd = parse_args(&["learnings", "list", "--project", "myproj"]).unwrap();
+        assert_eq!(cmd, Command::LearningsList {
+            project: Some("myproj".into()),
+            tag: None,
+        });
+    }
+
+    #[test]
+    fn learnings_list_with_tag() {
+        let cmd = parse_args(&["learnings", "list", "--tag", "testing"]).unwrap();
+        assert_eq!(cmd, Command::LearningsList {
+            project: None,
+            tag: Some("testing".into()),
+        });
+    }
+
+    #[test]
+    fn learnings_list_with_both() {
+        let cmd = parse_args(&["learnings", "list", "--project", "p", "--tag", "t"]).unwrap();
+        assert_eq!(cmd, Command::LearningsList {
+            project: Some("p".into()),
+            tag: Some("t".into()),
+        });
+    }
+
+    #[test]
+    fn learnings_add() {
+        let cmd = parse_args(&["learnings", "add", "myproj", "Title", "Body text"]).unwrap();
+        assert_eq!(cmd, Command::LearningsAdd {
+            project: "myproj".into(),
+            title: "Title".into(),
+            body: "Body text".into(),
+        });
+    }
+
+    #[test]
+    fn learnings_add_body_joined() {
+        let cmd = parse_args(&["learnings", "add", "p", "T", "word1", "word2"]).unwrap();
+        assert_eq!(cmd, Command::LearningsAdd {
+            project: "p".into(),
+            title: "T".into(),
+            body: "word1 word2".into(),
+        });
+    }
+
+    #[test]
+    fn learnings_add_missing_args() {
+        assert!(parse_args(&["learnings", "add", "p", "T"]).is_err());
+    }
+
+    #[test]
+    fn learnings_search() {
+        let cmd = parse_args(&["learnings", "search", "rate", "limit"]).unwrap();
+        assert_eq!(cmd, Command::LearningsSearch {
+            query: "rate limit".into(),
+        });
+    }
+
+    #[test]
+    fn learnings_search_missing_query() {
+        assert!(parse_args(&["learnings", "search"]).is_err());
+    }
+
+    #[test]
+    fn learnings_no_subcommand() {
+        assert!(parse_args(&["learnings"]).is_err());
+    }
+
+    #[test]
+    fn learnings_unknown_subcommand() {
+        let result = parse_args(&["learnings", "bogus"]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Unknown learnings subcommand"));
     }
 }

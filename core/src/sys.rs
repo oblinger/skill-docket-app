@@ -204,6 +204,11 @@ impl Sys {
             Command::DaemonStop => Response::Ok {
                 output: "Daemon shutting down".into(),
             },
+            Command::LearningsList { project, tag } => self.cmd_learnings_list(project, tag),
+            Command::LearningsAdd { project, title, body } => {
+                self.cmd_learnings_add(project, title, body)
+            }
+            Command::LearningsSearch { query } => self.cmd_learnings_search(query),
             Command::Help { topic } => self.cmd_help(topic),
         }
     }
@@ -481,10 +486,18 @@ impl Sys {
             let project_ctx = self.data.folders().list().first()
                 .map(|f| format!("Project: {}\nPath: {}", f.name, f.path));
 
-            let briefing = crate::agent::briefing::compose_briefing(
+            // Resolve LEARNINGS.md path for the first project (if any)
+            let learnings_path = self.data.folders().list().first()
+                .map(|f| {
+                    let p = PathBuf::from(&f.path).join("LEARNINGS.md");
+                    p.to_string_lossy().to_string()
+                });
+
+            let briefing = crate::agent::briefing::compose_briefing_with_learnings(
                 skill_text.as_deref(),
                 task_spec.as_deref(),
                 project_ctx.as_deref(),
+                learnings_path.as_deref(),
             );
 
             if !briefing.is_empty() {
@@ -1337,6 +1350,117 @@ impl Sys {
             }
             Response::Ok {
                 output: lines.join("\n"),
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Learnings command handlers
+    // -----------------------------------------------------------------------
+
+    fn cmd_learnings_list(
+        &self,
+        project: Option<String>,
+        tag: Option<String>,
+    ) -> Response {
+        use crate::data::learnings;
+
+        let paths = if let Some(ref proj_name) = project {
+            match learnings::learnings_path_for_project(self.data.folders(), proj_name) {
+                Some(p) => vec![(proj_name.clone(), p)],
+                None => {
+                    return Response::Error {
+                        message: format!("Project '{}' not found", proj_name),
+                    }
+                }
+            }
+        } else {
+            learnings::all_learnings_paths(self.data.folders())
+        };
+
+        let mut all_lines = Vec::new();
+        for (proj_name, path) in &paths {
+            let entries = learnings::load_entries(path);
+            let entries = if let Some(ref t) = tag {
+                learnings::filter_by_tag(&entries, t)
+            } else {
+                entries
+            };
+            for entry in &entries {
+                all_lines.push(learnings::format_entry_display(entry, Some(proj_name)));
+            }
+        }
+
+        if all_lines.is_empty() {
+            Response::Ok {
+                output: "No learnings found.".into(),
+            }
+        } else {
+            Response::Ok {
+                output: all_lines.join("\n\n"),
+            }
+        }
+    }
+
+    fn cmd_learnings_add(
+        &self,
+        project: String,
+        title: String,
+        body: String,
+    ) -> Response {
+        use crate::data::learnings;
+
+        let path = match learnings::learnings_path_for_project(self.data.folders(), &project) {
+            Some(p) => p,
+            None => {
+                return Response::Error {
+                    message: format!("Project '{}' not found", project),
+                }
+            }
+        };
+
+        let existing = std::fs::read_to_string(&path).unwrap_or_default();
+        let date = learnings::today_iso();
+        let updated = learnings::prepend_entry(
+            &existing,
+            &date,
+            &title,
+            &body,
+            "",      // source left empty for CLI-added entries
+            &[],     // tags left empty for CLI-added entries
+        );
+
+        match std::fs::write(&path, &updated) {
+            Ok(_) => Response::Ok {
+                output: format!("Added learning to {}", path.display()),
+            },
+            Err(e) => Response::Error {
+                message: format!("Failed to write {}: {}", path.display(), e),
+            },
+        }
+    }
+
+    fn cmd_learnings_search(&self, query: String) -> Response {
+        use crate::data::learnings;
+
+        let paths = learnings::all_learnings_paths(self.data.folders());
+        let mut all_lines = Vec::new();
+
+        for (proj_name, path) in &paths {
+            let entries = learnings::load_entries(path);
+            let matched = learnings::search_entries(&entries, &query);
+            for entry in &matched {
+                all_lines.push(learnings::format_entry_display(entry, Some(proj_name)));
+            }
+        }
+
+        if all_lines.is_empty() {
+            Response::Ok {
+                output: format!("No learnings matching '{}' found.", query),
+            }
+        } else {
+            Response::Ok {
+                output: all_lines.join("\n\n"),
             }
         }
     }

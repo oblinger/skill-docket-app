@@ -115,6 +115,11 @@ History commands:
   history snapshot                 Take a snapshot now
   history prune                    Prune old snapshots
 
+Learnings commands:
+  learnings list [flags]           List learning entries
+  learnings add <project> <t> <b>  Add a new learning entry
+  learnings search <query>         Full-text search across projects
+
 Watch command:
   watch [--since <ms>] [--timeout <ms>]  Stream state changes
 
@@ -376,6 +381,20 @@ Daemon commands — manage the CMX daemon process
   daemon stop
     Send a stop signal to the running daemon. The daemon will finish
     in-flight commands and shut down gracefully.",
+
+        "learnings" => "\
+Learnings commands — manage project learnings (institutional memory)
+
+  learnings list [--project <name>] [--tag <tag>]
+    List learning entries. Optionally filter by project name or tag.
+
+  learnings add <project> <title> <body>
+    Add a new learning entry to a project's LEARNINGS.md file. The entry
+    is prepended (newest first) with today's date.
+
+  learnings search <query>
+    Full-text search across all projects' LEARNINGS.md files. Matches
+    against title, body, source, and tags (case-insensitive).",
 
         "pool" => "\
 Pool commands — manage worker agent pools
@@ -920,6 +939,49 @@ Launches the ratatui-based terminal dashboard. Connects to the
 running daemon and displays agents, tasks, and projects with
 live refresh. Press q to quit, ? for help.",
 
+        // --- Learnings commands ---
+
+        "learnings.list" => "\
+skd learnings list — list learning entries
+
+Usage: skd learnings list [--project <name>] [--tag <tag>]
+
+Lists learning entries from LEARNINGS.md files. Without flags, lists
+entries from all registered projects. Use --project to filter to a
+single project, and --tag to filter by tag.
+
+Examples:
+  skd learnings list
+  skd learnings list --project myproj
+  skd learnings list --tag testing",
+
+        "learnings.add" => "\
+skd learnings add — add a learning entry
+
+Usage: skd learnings add <project> <title> <body>
+
+Prepends a new dated entry to the project's LEARNINGS.md file.
+
+Arguments:
+  <project>    Project name (must be registered)
+  <title>      Short description of the learning
+  <body>       Explanation text (remaining args joined)
+
+Examples:
+  skd learnings add myproj \"Tests need --no-parallel\" \"The integration tests share a database.\"",
+
+        "learnings.search" => "\
+skd learnings search — full-text search across learnings
+
+Usage: skd learnings search <query>
+
+Searches all LEARNINGS.md files across all registered projects.
+Matches against title, body, source, and tags (case-insensitive).
+
+Examples:
+  skd learnings search \"rate limit\"
+  skd learnings search sqlite",
+
         // --- Pool commands ---
 
         "pool.list" => "\
@@ -988,6 +1050,7 @@ mod tests {
         assert!(text.contains("Rig commands"));
         assert!(text.contains("Diagnosis commands:"));
         assert!(text.contains("History commands:"));
+        assert!(text.contains("Learnings commands:"));
         assert!(text.contains("Watch command:"));
         assert!(text.contains("Daemon commands:"));
         assert!(text.contains("Pool commands:"));
@@ -1141,6 +1204,7 @@ mod tests {
             "diagnosis.thresholds", "diagnosis.events",
             "history.list", "history.show", "history.diff",
             "history.restore", "history.snapshot", "history.prune",
+            "learnings.list", "learnings.add", "learnings.search",
             "watch",
             "daemon.run", "daemon.stop", "tui",
             "pool.list", "pool.status", "pool.set", "pool.remove",
@@ -1202,6 +1266,14 @@ mod tests {
         let text = help_text(Some("daemon"));
         assert!(text.contains("daemon run"));
         assert!(text.contains("daemon stop"));
+    }
+
+    #[test]
+    fn group_help_learnings() {
+        let text = help_text(Some("learnings"));
+        assert!(text.contains("learnings list"));
+        assert!(text.contains("learnings add"));
+        assert!(text.contains("learnings search"));
     }
 
     #[test]

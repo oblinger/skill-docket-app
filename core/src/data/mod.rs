@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod config_doc;
 pub mod folders;
+pub mod learnings;
 pub mod messages;
 pub mod roadmap;
 pub mod settings;
