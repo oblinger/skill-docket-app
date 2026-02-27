@@ -18,6 +18,7 @@ use crate::command::Command;
 use crate::convergence::executor::ConvergenceExecutor;
 use crate::convergence::retry::RetryPolicy;
 use crate::infrastructure::SessionBackend;
+#[cfg(test)]
 use crate::infrastructure::mock::MockBackend;
 use crate::monitor::cycle::MonitorCycle;
 use crate::monitor::heartbeat;
@@ -122,9 +123,11 @@ impl Daemon {
         Self::with_config(config_dir, DaemonConfig::default())
     }
 
-    /// Initialize with custom config (uses MockBackend by default).
+    /// Initialize with custom config (uses LiveTmuxBackend for production).
     pub fn with_config(config_dir: &Path, config: DaemonConfig) -> Result<Daemon, String> {
-        Self::with_backend(config_dir, config, Box::new(MockBackend::new()))
+        Self::with_backend(config_dir, config, Box::new(
+            crate::infrastructure::live::LiveTmuxBackend::new()
+        ))
     }
 
     /// Initialize with a specific session backend.

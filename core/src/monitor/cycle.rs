@@ -53,16 +53,20 @@ impl OutputTracker {
 
     /// Record a capture for an agent and determine whether the output changed.
     ///
+    /// `agent` is the tracking key (agent name).
+    /// `target` is the tmux target (session name or pane ID) used for capture.
+    ///
     /// Returns `OutputCheckResult` with the heartbeat parse result and
     /// change-detection metadata.
     pub fn check_agent(
         &mut self,
         agent: &str,
+        target: &str,
         backend: &dyn SessionBackend,
         prompt_pattern: &str,
         now_ms: u64,
     ) -> Result<OutputCheckResult, String> {
-        let capture = backend.capture_pane(agent)?;
+        let capture = backend.capture_pane(target)?;
         let heartbeat = heartbeat::parse_capture(&capture, prompt_pattern);
 
         let changed = match self.last_captures.get(agent) {
@@ -174,12 +178,15 @@ impl DeliveryBridge {
     ///
     /// For each agent with pending messages, captures the pane, parses the
     /// heartbeat, and delivers the oldest message if the agent is Ready.
+    ///
+    /// `session_map` maps agent names to tmux targets (pane IDs or session names).
     /// Returns the list of successful deliveries.
     pub fn deliver_pending(
         &self,
         store: &mut MessageStore,
         backend: &dyn SessionBackend,
         agents: &[String],
+        session_map: &std::collections::HashMap<String, String>,
         _now_ms: u64,
     ) -> Vec<DeliveryResult> {
         let mut results = Vec::new();
@@ -190,7 +197,8 @@ impl DeliveryBridge {
             }
 
             // Check if agent is ready (capture pane, parse heartbeat)
-            let capture = match backend.capture_pane(agent) {
+            let target = session_map.get(agent).map(|s| s.as_str()).unwrap_or(agent);
+            let capture = match backend.capture_pane(target) {
                 Ok(output) => output,
                 Err(_) => continue, // can't reach agent, skip
             };
@@ -328,11 +336,19 @@ impl MonitorCycle {
     ) -> CycleResult {
         let mut health_updates = Vec::new();
         let agent_names: Vec<String> = agents.iter().map(|a| a.name.clone()).collect();
+        // Build session map: agent name → tmux target (session or pane ID)
+        let session_map: std::collections::HashMap<String, String> = agents.iter()
+            .filter_map(|a| a.session.as_ref().map(|s| (a.name.clone(), s.clone())))
+            .collect();
 
         // Phase 1 + 2: Capture, parse, and assess health per agent
         for agent in agents {
+            let target = session_map.get(&agent.name)
+                .map(|s| s.as_str())
+                .unwrap_or(&agent.name);
             let signals = match self.tracker.check_agent(
                 &agent.name,
+                target,
                 backend,
                 &self.prompt_pattern,
                 now_ms,
@@ -408,6 +424,7 @@ impl MonitorCycle {
             messages,
             backend,
             &agent_names,
+            &session_map,
             now_ms,
         );
 
@@ -485,7 +502,7 @@ mod tests {
         let mut mock = MockBackend::new();
         mock.set_capture("w1", "some output\n$ ");
 
-        let result = tracker.check_agent("w1", &mock, "$ ", 1000).unwrap();
+        let result = tracker.check_agent("w1", "w1", &mock, "$ ", 1000).unwrap();
         assert!(result.output_changed);
         assert_eq!(result.stale_count, 0);
     }
@@ -496,12 +513,12 @@ mod tests {
         let mut mock = MockBackend::new();
         mock.set_capture("w1", "same output\n$ ");
 
-        tracker.check_agent("w1", &mock, "$ ", 1000).unwrap();
-        let r2 = tracker.check_agent("w1", &mock, "$ ", 2000).unwrap();
+        tracker.check_agent("w1", "w1", &mock, "$ ", 1000).unwrap();
+        let r2 = tracker.check_agent("w1", "w1", &mock, "$ ", 2000).unwrap();
         assert!(!r2.output_changed);
         assert_eq!(r2.stale_count, 1);
 
-        let r3 = tracker.check_agent("w1", &mock, "$ ", 3000).unwrap();
+        let r3 = tracker.check_agent("w1", "w1", &mock, "$ ", 3000).unwrap();
         assert!(!r3.output_changed);
         assert_eq!(r3.stale_count, 2);
     }
@@ -512,13 +529,13 @@ mod tests {
         let mut mock = MockBackend::new();
         mock.set_capture("w1", "output A");
 
-        tracker.check_agent("w1", &mock, "$ ", 1000).unwrap();
+        tracker.check_agent("w1", "w1", &mock, "$ ", 1000).unwrap();
         // Same output -> stale
-        tracker.check_agent("w1", &mock, "$ ", 2000).unwrap();
+        tracker.check_agent("w1", "w1", &mock, "$ ", 2000).unwrap();
 
         // Change output
         mock.set_capture("w1", "output B");
-        let result = tracker.check_agent("w1", &mock, "$ ", 3000).unwrap();
+        let result = tracker.check_agent("w1", "w1", &mock, "$ ", 3000).unwrap();
         assert!(result.output_changed);
         assert_eq!(result.stale_count, 0);
     }
@@ -529,9 +546,9 @@ mod tests {
         let mut mock = MockBackend::new();
         mock.set_capture("w1", "output");
 
-        tracker.check_agent("w1", &mock, "$ ", 1000).unwrap();
+        tracker.check_agent("w1", "w1", &mock, "$ ", 1000).unwrap();
         // Same output at 5000 — last change was at 1000
-        tracker.check_agent("w1", &mock, "$ ", 5000).unwrap();
+        tracker.check_agent("w1", "w1", &mock, "$ ", 5000).unwrap();
 
         assert_eq!(tracker.staleness_ms("w1", 7000), 6000);
     }
@@ -542,7 +559,7 @@ mod tests {
         let mut mock = MockBackend::new();
         mock.set_capture("w1", "output");
 
-        tracker.check_agent("w1", &mock, "$ ", 1000).unwrap();
+        tracker.check_agent("w1", "w1", &mock, "$ ", 1000).unwrap();
         tracker.remove("w1");
 
         // After removal, staleness_ms returns 0 (now - now)
@@ -554,7 +571,7 @@ mod tests {
         let tracker_result = {
             let mut tracker = OutputTracker::new();
             let mock = MockBackend::new();
-            tracker.check_agent("missing", &mock, "$ ", 1000)
+            tracker.check_agent("missing", "missing", &mock, "$ ", 1000)
         };
         assert!(tracker_result.is_err());
     }
@@ -566,17 +583,17 @@ mod tests {
 
         // Ready state (prompt visible)
         mock.set_capture("w1", "done\n$ ");
-        let result = tracker.check_agent("w1", &mock, "$ ", 1000).unwrap();
+        let result = tracker.check_agent("w1", "w1", &mock, "$ ", 1000).unwrap();
         assert_eq!(result.heartbeat.state, HeartbeatAgentState::Ready);
 
         // Busy state (no prompt)
         mock.set_capture("w2", "compiling...\nrunning tests");
-        let result = tracker.check_agent("w2", &mock, "$ ", 1000).unwrap();
+        let result = tracker.check_agent("w2", "w2", &mock, "$ ", 1000).unwrap();
         assert_eq!(result.heartbeat.state, HeartbeatAgentState::Busy);
 
         // Error state
         mock.set_capture("w3", "Error: something broke");
-        let result = tracker.check_agent("w3", &mock, "$ ", 1000).unwrap();
+        let result = tracker.check_agent("w3", "w3", &mock, "$ ", 1000).unwrap();
         assert_eq!(result.heartbeat.state, HeartbeatAgentState::Error);
     }
 
@@ -592,7 +609,7 @@ mod tests {
         mock.set_capture("w1", "idle\n$ ");
 
         let agents = vec!["w1".to_string()];
-        let results = bridge.deliver_pending(&mut store, &mock, &agents, 2000);
+        let results = bridge.deliver_pending(&mut store, &mock, &agents, &std::collections::HashMap::new(), 2000);
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].agent, "w1");
@@ -612,7 +629,7 @@ mod tests {
         mock.set_capture("w1", "compiling...\nrunning tests");
 
         let agents = vec!["w1".to_string()];
-        let results = bridge.deliver_pending(&mut store, &mock, &agents, 2000);
+        let results = bridge.deliver_pending(&mut store, &mock, &agents, &std::collections::HashMap::new(), 2000);
 
         assert!(results.is_empty());
         // Message should still be pending
@@ -633,22 +650,22 @@ mod tests {
         let agents = vec!["w1".to_string()];
 
         // First delivery → oldest
-        let r1 = bridge.deliver_pending(&mut store, &mock, &agents, 4000);
+        let r1 = bridge.deliver_pending(&mut store, &mock, &agents, &std::collections::HashMap::new(), 4000);
         assert_eq!(r1.len(), 1);
         assert_eq!(r1[0].message, "[pm] first");
 
         // Second delivery → next oldest
-        let r2 = bridge.deliver_pending(&mut store, &mock, &agents, 5000);
+        let r2 = bridge.deliver_pending(&mut store, &mock, &agents, &std::collections::HashMap::new(), 5000);
         assert_eq!(r2.len(), 1);
         assert_eq!(r2[0].message, "[pm] second");
 
         // Third delivery → last
-        let r3 = bridge.deliver_pending(&mut store, &mock, &agents, 6000);
+        let r3 = bridge.deliver_pending(&mut store, &mock, &agents, &std::collections::HashMap::new(), 6000);
         assert_eq!(r3.len(), 1);
         assert_eq!(r3[0].message, "[pm] third");
 
         // No more
-        let r4 = bridge.deliver_pending(&mut store, &mock, &agents, 7000);
+        let r4 = bridge.deliver_pending(&mut store, &mock, &agents, &std::collections::HashMap::new(), 7000);
         assert!(r4.is_empty());
     }
 
@@ -661,7 +678,7 @@ mod tests {
         let mock = MockBackend::new(); // no captures set → will return Err
 
         let agents = vec!["w1".to_string()];
-        let results = bridge.deliver_pending(&mut store, &mock, &agents, 2000);
+        let results = bridge.deliver_pending(&mut store, &mock, &agents, &std::collections::HashMap::new(), 2000);
         assert!(results.is_empty());
         // Message still pending
         assert_eq!(store.pending_for("w1").len(), 1);
@@ -676,7 +693,7 @@ mod tests {
         mock.set_capture("w1", "ready\n$ ");
 
         let agents = vec!["w1".to_string()];
-        let results = bridge.deliver_pending(&mut store, &mock, &agents, 2000);
+        let results = bridge.deliver_pending(&mut store, &mock, &agents, &std::collections::HashMap::new(), 2000);
         assert!(results.is_empty());
     }
 

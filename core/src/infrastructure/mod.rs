@@ -4,6 +4,7 @@
 //! and mock (testing). The tmux backend builds command strings without executing
 //! them, keeping this crate free of process-spawning side effects.
 
+pub mod live;
 pub mod mock;
 pub mod runner;
 pub mod tmux;

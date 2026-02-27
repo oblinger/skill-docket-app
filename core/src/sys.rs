@@ -156,11 +156,12 @@ impl Sys {
             Command::PoolRemove { role } => self.cmd_pool_remove(role),
             Command::Tell { agent, text } => self.cmd_tell(agent, text),
             Command::Interrupt { agent, text } => self.cmd_interrupt(agent, text),
-            // Layout and Client commands are handled by MuxUX, not the docket app.
+            // LayoutPlace is handled locally — updates agent session to pane ID.
+            Command::LayoutPlace { pane, agent } => self.cmd_layout_place(pane, agent),
+            // Other layout and Client commands are handled by MuxUX.
             Command::LayoutRow { .. }
             | Command::LayoutColumn { .. }
             | Command::LayoutMerge { .. }
-            | Command::LayoutPlace { .. }
             | Command::LayoutCapture { .. }
             | Command::LayoutSession { .. }
             | Command::ClientNext
@@ -1071,12 +1072,15 @@ impl Sys {
     // -----------------------------------------------------------------------
 
     fn cmd_tell(&mut self, agent: String, text: String) -> Response {
-        // Verify agent exists
-        if self.data.agents().get(&agent).is_none() {
-            return Response::Error {
-                message: format!("Agent '{}' not found", agent),
-            };
-        }
+        // Verify agent exists and resolve session target
+        let target = match self.data.agents().get(&agent) {
+            Some(a) => a.session.clone().unwrap_or_else(|| agent.clone()),
+            None => {
+                return Response::Error {
+                    message: format!("Agent '{}' not found", agent),
+                };
+            }
+        };
         let msg = Message {
             sender: "user".into(),
             recipient: agent.clone(),
@@ -1086,7 +1090,7 @@ impl Sys {
         };
         self.data.messages_mut().enqueue(msg);
         self.actions.push(Action::SendKeys {
-            target: agent.clone(),
+            target,
             keys: text,
         });
         Response::Ok {
@@ -1095,20 +1099,23 @@ impl Sys {
     }
 
     fn cmd_interrupt(&mut self, agent: String, text: Option<String>) -> Response {
-        if self.data.agents().get(&agent).is_none() {
-            return Response::Error {
-                message: format!("Agent '{}' not found", agent),
-            };
-        }
+        let target = match self.data.agents().get(&agent) {
+            Some(a) => a.session.clone().unwrap_or_else(|| agent.clone()),
+            None => {
+                return Response::Error {
+                    message: format!("Agent '{}' not found", agent),
+                };
+            }
+        };
         let text = text.unwrap_or_default();
         // Send Ctrl-C followed by the text
         self.actions.push(Action::SendKeys {
-            target: agent.clone(),
+            target: target.clone(),
             keys: "C-c".into(),
         });
         if !text.is_empty() {
             self.actions.push(Action::SendKeys {
-                target: agent.clone(),
+                target,
                 keys: text,
             });
         }
@@ -1117,7 +1124,22 @@ impl Sys {
         }
     }
 
-    // Layout and Client methods removed — handled by MuxUX.
+    // -----------------------------------------------------------------------
+    // Layout command handlers (subset handled locally)
+    // -----------------------------------------------------------------------
+
+    fn cmd_layout_place(&mut self, pane: String, agent: String) -> Response {
+        if let Some(a) = self.data.agents_mut().get_mut(&agent) {
+            a.session = Some(pane.clone());
+            Response::Ok {
+                output: format!("Agent '{}' placed in pane '{}'", agent, pane),
+            }
+        } else {
+            Response::Error {
+                message: format!("Agent '{}' not found", agent),
+            }
+        }
+    }
 
     // -----------------------------------------------------------------------
     // Diagnosis command handlers
