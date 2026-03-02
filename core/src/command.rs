@@ -637,6 +637,15 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         topic: Option<String>,
     },
+
+    // -----------------------------------------------------------------
+    // Doctor — environment validation
+    // -----------------------------------------------------------------
+
+    /// Validate the role enforcement infrastructure: hooks, skill files,
+    /// CLAUDE.md patterns, and CC sections.
+    #[serde(rename = "doctor")]
+    Doctor,
 }
 
 

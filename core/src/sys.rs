@@ -211,6 +211,7 @@ impl Sys {
             }
             Command::LearningsSearch { query } => self.cmd_learnings_search(query),
             Command::Help { topic } => self.cmd_help(topic),
+            Command::Doctor => self.cmd_doctor(),
         }
     }
 
@@ -1805,6 +1806,139 @@ impl Sys {
             },
             Err(e) => Response::Error { message: format!("Prune failed: {}", e) },
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Doctor — environment validation
+    // -----------------------------------------------------------------------
+
+    fn cmd_doctor(&self) -> Response {
+        let mut lines: Vec<String> = Vec::new();
+        let home = std::env::var("HOME").unwrap_or_default();
+        let claude_dir = format!("{}/.claude", home);
+        let skills_dir = format!("{}/skills", claude_dir);
+        let settings_path = format!("{}/settings.json", claude_dir);
+
+        // --- Check 1: Hook installed in ~/.claude/settings.json ---
+        lines.push("Hook Setup".into());
+        let settings_content = std::fs::read_to_string(&settings_path).unwrap_or_default();
+        if settings_content.is_empty() {
+            lines.push(format!("  ✘ {} not found or empty", settings_path));
+        } else {
+            lines.push(format!("  ● {}", settings_path));
+            // Check for role-related hook (grep for role- pattern in the hook commands)
+            if settings_content.contains("role-") && settings_content.contains("SKILL.md") {
+                lines.push("  ● Role enforcement hook detected".into());
+            } else {
+                lines.push("  ▲ No role enforcement hook found — role injection after compact will not work".into());
+            }
+        }
+        lines.push(String::new());
+
+        // --- Check 2: Scan registered projects for role patterns ---
+        lines.push("Projects".into());
+        let mut referenced_roles: Vec<String> = Vec::new();
+        let folders = self.data.folders().list();
+        if folders.is_empty() {
+            lines.push("  (no projects registered)".into());
+        }
+        for folder in folders {
+            let claude_md = format!("{}/CLAUDE.md", folder.path);
+            let content = std::fs::read_to_string(&claude_md).unwrap_or_default();
+            // Extract role-<name> patterns
+            let mut found_role = None;
+            for word in content.split_whitespace() {
+                if let Some(start) = word.find("role-") {
+                    let rest = &word[start + 5..];
+                    let role_name: String = rest.chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                        .collect();
+                    if !role_name.is_empty() {
+                        let full = format!("role-{}", role_name);
+                        if !referenced_roles.contains(&full) {
+                            referenced_roles.push(full.clone());
+                        }
+                        found_role = Some(full);
+                        break;
+                    }
+                }
+            }
+            match found_role {
+                Some(role) => lines.push(format!("  ● {}: CLAUDE.md references {}", folder.name, role)),
+                None => {
+                    if content.is_empty() {
+                        lines.push(format!("  ▲ {}: no CLAUDE.md found at {}", folder.name, claude_md));
+                    } else {
+                        lines.push(format!("  ▲ {}: CLAUDE.md has no role-* pattern", folder.name));
+                    }
+                }
+            }
+        }
+        lines.push(String::new());
+
+        // --- Check 3: Skill files and CC sections ---
+        lines.push("Roles".into());
+
+        // Also scan the skills directory for any role-* directories
+        if let Ok(entries) = std::fs::read_dir(&skills_dir) {
+            for entry in entries.flatten() {
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name.starts_with("role-") && entry.path().is_dir() {
+                    if !referenced_roles.contains(&name) {
+                        referenced_roles.push(name);
+                    }
+                }
+            }
+        }
+
+        referenced_roles.sort();
+        if referenced_roles.is_empty() {
+            lines.push("  (no roles found)".into());
+        }
+        for role in &referenced_roles {
+            let skill_path = format!("{}/{}/SKILL.md", skills_dir, role);
+            match std::fs::read_to_string(&skill_path) {
+                Ok(content) => {
+                    let line_count = content.lines().count();
+                    // Check for ## CC section
+                    let has_cc = content.lines().any(|l| l.trim() == "## CC");
+                    if has_cc {
+                        // Count CC section lines
+                        let mut cc_lines = 0;
+                        let mut in_cc = false;
+                        for line in content.lines() {
+                            if line.trim() == "## CC" {
+                                in_cc = true;
+                                continue;
+                            }
+                            if in_cc && line.starts_with("## ") {
+                                break;
+                            }
+                            if in_cc {
+                                cc_lines += 1;
+                            }
+                        }
+                        lines.push(format!(
+                            "  ● {}: SKILL.md ({} lines), CC section ({} lines)",
+                            role, line_count, cc_lines
+                        ));
+                    } else {
+                        lines.push(format!(
+                            "  ▲ {}: SKILL.md ({} lines) but no ## CC section — agent will not get compact cheat sheet",
+                            role, line_count
+                        ));
+                    }
+                }
+                Err(_) => {
+                    lines.push(format!(
+                        "  ✘ {}: SKILL.md not found at {}",
+                        role, skill_path
+                    ));
+                }
+            }
+        }
+
+        Response::Ok { output: lines.join("\n") }
     }
 }
 

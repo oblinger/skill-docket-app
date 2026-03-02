@@ -35,6 +35,7 @@ pub fn parse_args(args: &[&str]) -> Result<Command, String> {
         "daemon" => parse_daemon(args),
         "watch" => parse_watch(args),
         "tui" => Ok(Command::Tui),
+        "doctor" => Ok(Command::Doctor),
         _ => Err(format!("Unknown command: '{}'", args[0])),
     }
 }
