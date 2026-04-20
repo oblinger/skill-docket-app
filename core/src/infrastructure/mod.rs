@@ -9,7 +9,7 @@ pub mod mock;
 pub mod runner;
 pub mod tmux;
 
-use cmx_utils::response::Action;
+use ob_utils::response::Action;
 
 /// Trait for session management backends. Implementations translate abstract
 /// actions into backend-specific operations.

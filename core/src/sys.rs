@@ -11,7 +11,7 @@ use crate::rig::orchestrator::RigOrchestrator;
 use crate::types::agent::{Agent, AgentStatus, AgentType, HealthState};
 use crate::types::config::{FolderEntry, Settings};
 use crate::types::message::Message;
-use cmx_utils::response::{Action, Response};
+use ob_utils::response::{Action, Response};
 use crate::types::task::{TaskNode, TaskSource, TaskStatus};
 use crate::diagnosis::{DiagnosisEngine, SignalType};
 use crate::history::{HistoryManager, HistoryEntry};

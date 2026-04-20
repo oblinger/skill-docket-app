@@ -25,8 +25,8 @@ use crate::monitor::heartbeat;
 use crate::service::ServiceSocket;
 use crate::sys::Sys;
 use crate::types::config::BackoffStrategy;
-use cmx_utils::response::Action;
-use cmx_utils::watch::WatchRegistry;
+use ob_utils::response::Action;
+use ob_utils::watch::WatchRegistry;
 
 
 /// Events that can be sent to the daemon's main loop via the channel.

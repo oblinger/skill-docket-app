@@ -36,15 +36,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
-name = "cmx-utils"
-version = "0.1.0"
-dependencies = [
- "libc",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "compact_str"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -276,6 +267,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ob-utils"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "parking_lot"
 version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -474,7 +474,7 @@ dependencies = [
 name = "skd-cli"
 version = "0.1.0"
 dependencies = [
- "cmx-utils",
+ "ob-utils",
  "serde_json",
  "skd-tui",
  "skill-docket-core",
@@ -484,8 +484,8 @@ dependencies = [
 name = "skd-tui"
 version = "0.1.0"
 dependencies = [
- "cmx-utils",
  "crossterm",
+ "ob-utils",
  "ratatui",
  "serde",
  "serde_json",
@@ -496,7 +496,7 @@ dependencies = [
 name = "skill-docket"
 version = "0.1.0"
 dependencies = [
- "cmx-utils",
+ "ob-utils",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -506,8 +506,8 @@ dependencies = [
 name = "skill-docket-core"
 version = "0.1.0"
 dependencies = [
- "cmx-utils",
  "libc",
+ "ob-utils",
  "serde",
  "serde_json",
  "serde_yaml",

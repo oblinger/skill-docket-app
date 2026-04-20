@@ -160,10 +160,10 @@ impl Tui {
                     match client.send(&parsed) {
                         Ok(resp) => {
                             let body = match resp {
-                                cmx_utils::response::Response::Ok {
+                                ob_utils::response::Response::Ok {
                                     output,
                                 } => output,
-                                cmx_utils::response::Response::Error {
+                                ob_utils::response::Response::Error {
                                     message,
                                 } => format!("Error: {}", message),
                             };

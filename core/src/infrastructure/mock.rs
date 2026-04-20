@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use cmx_utils::response::Action;
+use ob_utils::response::Action;
 
 use super::SessionBackend;
 
@@ -92,7 +92,7 @@ impl SessionBackend for MockBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmx_utils::response::Direction;
+    use ob_utils::response::Direction;
 
     #[test]
     fn records_actions() {

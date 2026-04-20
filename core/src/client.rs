@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::command::Command;
-use cmx_utils::response::Response;
+use ob_utils::response::Response;
 
 
 /// Send a command to the CMX daemon, starting it if necessary.

@@ -2,7 +2,7 @@
 
 use crate::convergence::retry::{ActionRetryTracker, RetryPolicy};
 use crate::infrastructure::SessionBackend;
-use cmx_utils::response::Action;
+use ob_utils::response::Action;
 
 /// Outcome of a convergence execution pass.
 #[derive(Debug, Clone)]
@@ -85,6 +85,7 @@ fn action_key(action: &Action) -> String {
         Action::ConnectSsh { agent, host, .. } => format!("connect_ssh:{}:{}", agent, host),
         Action::UpdateAssignment { agent, .. } => format!("update_assignment:{}", agent),
         Action::SendKeys { target, .. } => format!("send_keys:{}", target),
+        Action::ParkPane { pane_id, parking_session } => format!("park_pane:{}:{}", pane_id, parking_session),
     }
 }
 

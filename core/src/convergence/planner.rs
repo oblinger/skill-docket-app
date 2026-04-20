@@ -5,7 +5,7 @@
 //! anything itself.
 
 use crate::types::agent::Agent;
-use cmx_utils::response::Action;
+use ob_utils::response::Action;
 
 /// A lightweight description of a desired agent, used as input to the planner.
 #[derive(Debug, Clone, PartialEq)]

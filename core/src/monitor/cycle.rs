@@ -254,7 +254,7 @@ impl DeliveryBridge {
         agent: &str,
         text: Option<&str>,
     ) -> Result<(), String> {
-        use cmx_utils::response::Action;
+        use ob_utils::response::Action;
 
         // Send Ctrl-C first
         backend.execute_action(&Action::SendKeys {
@@ -758,14 +758,14 @@ mod tests {
 
         assert_eq!(mock.actions.len(), 2);
         match &mock.actions[0] {
-            cmx_utils::response::Action::SendKeys { target, keys } => {
+            ob_utils::response::Action::SendKeys { target, keys } => {
                 assert_eq!(target, "w1");
                 assert_eq!(keys, "C-c");
             }
             other => panic!("expected SendKeys, got {:?}", other),
         }
         match &mock.actions[1] {
-            cmx_utils::response::Action::SendKeys { target, keys } => {
+            ob_utils::response::Action::SendKeys { target, keys } => {
                 assert_eq!(target, "w1");
                 assert_eq!(keys, "new instructions Enter");
             }
@@ -782,7 +782,7 @@ mod tests {
 
         assert_eq!(mock.actions.len(), 1);
         match &mock.actions[0] {
-            cmx_utils::response::Action::SendKeys { target, keys } => {
+            ob_utils::response::Action::SendKeys { target, keys } => {
                 assert_eq!(target, "w1");
                 assert_eq!(keys, "C-c");
             }

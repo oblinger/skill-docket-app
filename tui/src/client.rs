@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use skill_docket_core::command::Command;
-use cmx_utils::response::Response;
+use ob_utils::response::Response;
 
 
 /// A client that communicates with the CMX daemon over a Unix socket.

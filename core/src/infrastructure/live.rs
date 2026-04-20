@@ -2,7 +2,7 @@
 
 use std::process::Command;
 
-use cmx_utils::response::Action;
+use ob_utils::response::Action;
 use super::SessionBackend;
 use super::tmux::TmuxCommandBuilder;
 
@@ -71,6 +71,9 @@ impl SessionBackend for LiveTmuxBackend {
             | Action::UpdateAssignment { .. } => {
                 return Ok(());
             }
+            Action::ParkPane { .. } => {
+                return Err("ParkPane is not supported by LiveTmuxBackend (MuxUX-only action)".into());
+            }
         };
         self.shell_run(&cmd).map(|_| ())
     }
@@ -111,7 +114,7 @@ mod tests {
     fn shell_escape_simple() {
         assert_eq!(shell_escape("Demo1"), "Demo1");
         assert_eq!(shell_escape("%105"), "%105");
-        assert_eq!(shell_escape("cmx-w1"), "cmx-w1");
+        assert_eq!(shell_escape("skd-w1"), "skd-w1");
     }
 
     #[test]

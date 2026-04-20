@@ -36,7 +36,7 @@ Three crates in a Cargo workspace:
 
 External path dependencies (sibling repos):
 - `skill-docket` (../../skill-docket) — open-source docket parsing
-- `cmx-utils` (../../cmx-utils) — shared socket protocol, response types, logging
+- `ob-utils` (../../ob-utils) — shared socket protocol, response types, logging
 
 ## Architecture
 

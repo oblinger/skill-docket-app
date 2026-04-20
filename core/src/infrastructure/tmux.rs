@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use cmx_utils::response::{Action, Direction};
+use ob_utils::response::{Action, Direction};
 use crate::types::session::{LayoutNode, TmuxPane, TmuxWindow};
 
 use super::SessionBackend;
@@ -384,6 +384,9 @@ impl SessionBackend for TmuxBackend {
             Action::UpdateAssignment { agent, task } => {
                 let _ = (agent, task);
             }
+            Action::ParkPane { .. } => {
+                return Err("ParkPane is not supported by TmuxBackend (MuxUX-only action)".into());
+            }
         }
         Ok(())
     }
@@ -411,7 +414,7 @@ impl SessionBackend for TmuxBackend {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cmx_utils::response::Direction;
+    use ob_utils::response::Direction;
     use crate::types::session::LayoutEntry;
 
     #[test]
@@ -580,9 +583,9 @@ mod tests {
 
     #[test]
     fn parse_sessions_basic() {
-        let output = "cmx-main\nwork\ntest\n";
+        let output = "skd-main\nwork\ntest\n";
         let sessions = parse_list_sessions(output);
-        assert_eq!(sessions, vec!["cmx-main", "work", "test"]);
+        assert_eq!(sessions, vec!["skd-main", "work", "test"]);
     }
 
     #[test]

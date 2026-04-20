@@ -3,7 +3,7 @@
 //! `CreateAgent` and `KillAgent` are logical; the backend only understands
 //! `CreateSession`, `SendKeys`, and `KillSession`.  This module bridges the gap.
 
-use cmx_utils::response::Action;
+use ob_utils::response::Action;
 
 /// Derive the tmux session name for an agent.
 pub fn session_name(agent_name: &str) -> String {
