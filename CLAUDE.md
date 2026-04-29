@@ -35,7 +35,7 @@ Three crates in a Cargo workspace:
 - **python/** — Python client library (cmx module).
 
 External path dependencies (sibling repos):
-- `skill-docket` (../../skill-docket) — open-source docket parsing
+- `skd-triggers` (../../skd-triggers) — trigger engine (parser/evaluator/registry); imported by core/src/monitor/cycle.rs for live agent monitoring
 - `ob-utils` (../../ob-utils) — shared socket protocol, response types, logging
 
 ## Architecture
