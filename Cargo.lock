@@ -481,6 +481,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "skd-triggers"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "skd-tui"
 version = "0.1.0"
 dependencies = [
@@ -493,16 +500,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "skill-docket"
-version = "0.1.0"
-dependencies = [
- "ob-utils",
- "serde",
- "serde_json",
- "serde_yaml",
-]
-
-[[package]]
 name = "skill-docket-core"
 version = "0.1.0"
 dependencies = [
@@ -511,7 +508,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
- "skill-docket",
+ "skd-triggers",
 ]
 
 [[package]]

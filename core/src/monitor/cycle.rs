@@ -17,8 +17,8 @@ use crate::data::messages::MessageStore;
 use crate::infrastructure::SessionBackend;
 use crate::monitor::health;
 use crate::monitor::heartbeat::{self, AgentState as HeartbeatAgentState};
-use skill_docket::trigger::evaluator::{self, AgentContext, TriggerFired};
-use skill_docket::trigger::registry::TriggerRegistry;
+use skd_triggers::evaluator::{self, AgentContext, TriggerFired};
+use skd_triggers::registry::TriggerRegistry;
 use crate::types::agent::Agent;
 use crate::types::health::{HealthAssessment, HealthSignal};
 
@@ -960,7 +960,7 @@ mod tests {
 
     #[test]
     fn cycle_with_global_trigger_matching_fires() {
-        use skill_docket::trigger::parser::*;
+        use skd_triggers::parser::*;
 
         let mut cycle = MonitorCycle::new(60000, 60, "$ ".into());
         let mut mock = MockBackend::new();
@@ -996,7 +996,7 @@ mod tests {
 
     #[test]
     fn cycle_with_task_trigger_fires_only_for_that_agent() {
-        use skill_docket::trigger::parser::*;
+        use skd_triggers::parser::*;
 
         let mut cycle = MonitorCycle::new(60000, 60, "$ ".into());
         let mut mock = MockBackend::new();
