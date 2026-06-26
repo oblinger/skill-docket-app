@@ -109,3 +109,11 @@ Agents NEVER touch infrastructure directly. All commands go through SKD.
 - `SKD Docs/SKD Plan/Specs/` — active implementation specs
 - `SKD Docs/SKD Plan/SKD Backlog.md` — backlog
 - `SESSION-START.md` — current session handoff state (if present)
+
+## Anchor / Docket standard — canonical home
+
+If anything here touches anchors or the Docket standard (e.g. "the anchor API"), there is ONE canonical home — do not fork anchor logic or docs locally:
+
+- **Docs (master):** `~/ob/kmr/prj/ClaudiMux/Docket/Anchorage/` — the **Anchorage** subsystem (slug `ANC`, a federated child of Docket), incl. `DKT Anchor` (standard), `DKT Anchor API` (API surface), `DKT Anchor Architecture`, `DKT Anchor Roadmap`. Master page: `Anchorage.md`.
+- **Code (master):** `~/ob/proj/ClaudiMux/docket/` — the `docket` repo; the `anchorage/` crate (renamed from `anchor/` 2026-06-26) is the anchor implementation. Symlinked into the vault at `prj/ClaudiMux/Docket/docket`.
+- **Primary driving agent:** the HookAnchor Pilot (temporary), per `DKT Anchor Roadmap` § Ownership.
