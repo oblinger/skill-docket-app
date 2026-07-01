@@ -1,7 +1,5 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## What This Is
 
 Skill Docket App (SKD) — the task orchestration daemon for ClaudiMux. Monitors concurrent AI agent projects, detects failures/stalls, manages agent lifecycle. Does NOT replace AI agents — it orchestrates them.
@@ -103,6 +101,8 @@ Agents NEVER touch infrastructure directly. All commands go through SKD.
 - All tests run in-process with no external dependencies
 
 ## Key Documentation
+
+<!-- TODO(agent): stale? `SKD Docs/` and `SESSION-START.md` not found in this repo — do these docs still exist here or have they moved? -->
 
 - `SKD Docs/SKD User/SKD Pilot Role.md` — defines the `next` command protocol. **Re-read after every /compact.**
 - `SKD Docs/SKD Dev/` — module deep-dives (Core, Agent, Config, Health, Execution)
