@@ -386,7 +386,7 @@ mod tests {
                 make_task("CMX1", "Core daemon", Some("pilot")),
                 make_task("CMX2", "Socket protocol", Some("worker-1")),
             ])
-            .with_sessions(vec![make_session("cmx-main", vec!["pilot", "worker-1"])])
+            .with_sessions(vec![make_session("skd-main", vec!["pilot", "worker-1"])])
             .with_settings_hash("abc123")
             .with_message_count(42)
     }
@@ -661,7 +661,7 @@ mod tests {
     #[test]
     fn find_session_by_name() {
         let snap = make_snapshot();
-        let session = snap.find_session("cmx-main").unwrap();
+        let session = snap.find_session("skd-main").unwrap();
         assert_eq!(session.window_count, 1);
     }
 
@@ -695,7 +695,7 @@ mod tests {
     fn session_names_returns_all() {
         let snap = make_snapshot();
         let names = snap.session_names();
-        assert_eq!(names, vec!["cmx-main"]);
+        assert_eq!(names, vec!["skd-main"]);
     }
 
     // --- Large snapshot ---

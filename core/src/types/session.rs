@@ -45,7 +45,7 @@ mod tests {
     #[test]
     fn session_round_trip() {
         let session = TmuxSession {
-            name: "cmx-main".into(),
+            name: "skd-main".into(),
             windows: vec![TmuxWindow {
                 index: 0,
                 name: "work".into(),
@@ -62,7 +62,7 @@ mod tests {
         };
         let json = serde_json::to_string(&session).unwrap();
         let back: TmuxSession = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.name, "cmx-main");
+        assert_eq!(back.name, "skd-main");
         assert_eq!(back.windows[0].panes[0].id, "%0");
     }
 

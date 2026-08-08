@@ -4,13 +4,12 @@
 
 All milestones completed successfully.
 
-| Task | Description             | Agent | Status    |
-|------|------------------------|-------|-----------|
-| 1    | Setup infrastructure    | hwb1  | completed |
-| 2    | Build component alpha   | hwb2  | completed |
-| 3    | Build component beta    | hwb1  | completed |
-| 4    | Integration check       | hwc1  | completed |
-| 5    | Final signoff           | hwpm  | completed |
+| Milestone | Description             | Agent(s)       | Status    |
+|-----------|------------------------|----------------|-----------|
+| HW1       | Setup Infrastructure    | demo1-pm       | completed |
+| HW2       | Build Components        | demo1-worker1, demo1-worker2 | completed |
+| HW3       | Integration Check       | demo1-checker  | completed |
+| HW4       | Final Signoff           | demo1-pm, demo1-pilot | completed |
 
 ## Artifacts
 
@@ -20,6 +19,7 @@ All milestones completed successfully.
 
 ## Signoff
 
-Project manager: hwpm
+Project manager: demo1-pm
+Pilot: demo1-pilot
 Date: 2026-02-26
 Status: All milestones complete. Project ready for closure.

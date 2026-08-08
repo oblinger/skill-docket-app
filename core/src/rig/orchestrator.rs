@@ -299,7 +299,7 @@ fn uuid_v4_simple() -> String {
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
-    format!("cmx-{}-{}", ts.as_secs(), ts.subsec_nanos())
+    format!("skd-{}-{}", ts.as_secs(), ts.subsec_nanos())
 }
 
 /// Simple wall-clock milliseconds.

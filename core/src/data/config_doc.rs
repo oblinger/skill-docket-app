@@ -27,12 +27,12 @@ pub struct AgentEntry {
 /// ## Sessions
 /// | Session | Tile |
 /// |---------|------|
-/// | cmx-main | dev-env |
+/// | skd-main | dev-env |
 ///
 /// ## Layouts
 /// | Session | Layout |
 /// |---------|--------|
-/// | cmx-main | row(pilot 30%, col(worker1, worker2) 70%) |
+/// | skd-main | row(pilot 30%, col(worker1, worker2) 70%) |
 /// ```
 #[derive(Debug, Clone)]
 pub struct ConfigDoc {
@@ -269,14 +269,14 @@ mod tests {
 
 | Session | Tile |
 |---------|------|
-| cmx-main | dev-env |
-| cmx-work | worker-panel |
+| skd-main | dev-env |
+| skd-work | worker-panel |
 
 ## Layouts
 
 | Session | Layout |
 |---------|--------|
-| cmx-main | row(pilot 30%, col(w1, w2) 70%) |
+| skd-main | row(pilot 30%, col(w1, w2) 70%) |
 "
     }
 
@@ -301,14 +301,14 @@ mod tests {
     fn parse_sessions() {
         let doc = ConfigDoc::parse(sample_doc()).unwrap();
         assert_eq!(doc.sessions.len(), 2);
-        assert_eq!(doc.sessions[0], ("cmx-main".into(), "dev-env".into()));
+        assert_eq!(doc.sessions[0], ("skd-main".into(), "dev-env".into()));
     }
 
     #[test]
     fn parse_layouts() {
         let doc = ConfigDoc::parse(sample_doc()).unwrap();
         assert_eq!(doc.layouts.len(), 1);
-        assert!(doc.layouts.contains_key("cmx-main"));
+        assert!(doc.layouts.contains_key("skd-main"));
     }
 
     #[test]

@@ -1900,31 +1900,31 @@ impl Sys {
             match std::fs::read_to_string(&skill_path) {
                 Ok(content) => {
                     let line_count = content.lines().count();
-                    // Check for ## CC section
-                    let has_cc = content.lines().any(|l| l.trim() == "## CC");
-                    if has_cc {
-                        // Count CC section lines
-                        let mut cc_lines = 0;
-                        let mut in_cc = false;
+                    // Check for Post-Compact Reload section (case-insensitive)
+                    let has_cb = content.lines().any(|l| l.to_lowercase().contains("post-compact reload"));
+                    if has_cb {
+                        // Count Post-Compact Reload section lines
+                        let mut cb_lines = 0;
+                        let mut in_cb = false;
                         for line in content.lines() {
-                            if line.trim() == "## CC" {
-                                in_cc = true;
+                            if line.to_lowercase().contains("post-compact reload") {
+                                in_cb = true;
                                 continue;
                             }
-                            if in_cc && line.starts_with("## ") {
+                            if in_cb && line.starts_with("## ") {
                                 break;
                             }
-                            if in_cc {
-                                cc_lines += 1;
+                            if in_cb {
+                                cb_lines += 1;
                             }
                         }
                         lines.push(format!(
-                            "  ● {}: SKILL.md ({} lines), CC section ({} lines)",
-                            role, line_count, cc_lines
+                            "  ● {}: SKILL.md ({} lines), Post-Compact Reload ({} lines)",
+                            role, line_count, cb_lines
                         ));
                     } else {
                         lines.push(format!(
-                            "  ▲ {}: SKILL.md ({} lines) but no ## CC section — agent will not get compact cheat sheet",
+                            "  ▲ {}: SKILL.md ({} lines) but no Post-Compact Reload section — agent will not get post-compact injection",
                             role, line_count
                         ));
                     }
@@ -3684,17 +3684,17 @@ mod tests {
         });
         assert!(sys.data().agents().get("w1").unwrap().session.is_none());
 
-        sys.notify_session_created("w1", "cmx-w1").unwrap();
+        sys.notify_session_created("w1", "skd-w1").unwrap();
         assert_eq!(
             sys.data().agents().get("w1").unwrap().session.as_deref(),
-            Some("cmx-w1")
+            Some("skd-w1")
         );
     }
 
     #[test]
     fn notify_session_created_unknown_agent_errors() {
         let mut sys = test_sys();
-        let result = sys.notify_session_created("nonexistent", "cmx-nope");
+        let result = sys.notify_session_created("nonexistent", "skd-nope");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }
@@ -3809,7 +3809,7 @@ mod tests {
             agent_type: None,
         });
         // Give the agent a session so briefing can be delivered
-        sys.notify_session_created("b1", "cmx-b1").unwrap();
+        sys.notify_session_created("b1", "skd-b1").unwrap();
 
         // Create a task to assign
         sys.execute(Command::TaskSet {
@@ -3831,7 +3831,7 @@ mod tests {
         let send_keys = actions.iter().find(|a| matches!(a, Action::SendKeys { .. }));
         assert!(send_keys.is_some(), "Expected SendKeys with briefing, got {:?}", actions);
         if let Some(Action::SendKeys { target, keys }) = send_keys {
-            assert_eq!(target, "cmx-b1");
+            assert_eq!(target, "skd-b1");
             assert!(keys.contains("Skill Instructions"), "Briefing should contain skill instructions");
             assert!(keys.contains("Builder Instructions"), "Briefing should contain builder content");
         }

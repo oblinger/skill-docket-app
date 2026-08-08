@@ -10,5 +10,5 @@ path = "src/main.rs"
 [dependencies]
 skill-docket-core = { path = "../core" }
 skd-tui = { path = "../tui" }
-ob-utils = { path = "../../ob-utils" }
+ob-utils = { path = "/Users/oblinger/ob/grove/ob-utils/rs" }
 serde_json = "1"

@@ -57,7 +57,7 @@ mod tests {
             status_notes: "running tests".into(),
             health: HealthState::Healthy,
             last_heartbeat_ms: Some(1700000000000),
-            session: Some("cmx-main".into()),
+            session: Some("skd-main".into()),
         };
         let json = serde_json::to_string(&agent).unwrap();
         let back: Agent = serde_json::from_str(&json).unwrap();

@@ -640,7 +640,7 @@ mod tests {
         // The session field should be set via the bridge feedback loop
         assert_eq!(
             agents[0].session.as_deref(),
-            Some("cmx-test-w1"),
+            Some("skd-test-w1"),
             "agent.session should be set after backend executes CreateSession"
         );
 
@@ -674,7 +674,7 @@ mod tests {
         daemon.tick();
 
         let agent = daemon.sys().data().agents().get("w2").unwrap();
-        assert_eq!(agent.session, Some("cmx-w2".to_string()));
+        assert_eq!(agent.session, Some("skd-w2".to_string()));
     }
 
     #[test]
@@ -730,7 +730,7 @@ mod tests {
 
         // Pre-configure MockBackend with a ready prompt for the expected session
         let mut mock = MockBackend::new();
-        mock.set_capture("cmx-sd1", "some output\n$ ");
+        mock.set_capture("skd-sd1", "some output\n$ ");
 
         let mut daemon = Daemon::with_backend(
             &dir,
@@ -757,7 +757,7 @@ mod tests {
 
         // Agent was created, session assigned, and ready-state detected in one tick
         let a = daemon.sys().data().agents().get("sd1").unwrap();
-        assert_eq!(a.session.as_deref(), Some("cmx-sd1"));
+        assert_eq!(a.session.as_deref(), Some("skd-sd1"));
         assert_eq!(a.health, crate::types::agent::HealthState::Healthy);
         assert_eq!(a.status, crate::types::agent::AgentStatus::Idle);
 
@@ -772,7 +772,7 @@ mod tests {
 
         // Backend has a capture that does NOT contain a ready prompt
         let mut mock = MockBackend::new();
-        mock.set_capture("cmx-sd2", "Loading claude...\nPlease wait...");
+        mock.set_capture("skd-sd2", "Loading claude...\nPlease wait...");
 
         let mut daemon = Daemon::with_backend(
             &dir,
@@ -853,7 +853,7 @@ mod tests {
 
         let mut mock = MockBackend::new();
         // Agent with session showing busy output (no prompt)
-        mock.set_capture("cmx-mc1", "running tests...\ntest_foo ok");
+        mock.set_capture("skd-mc1", "running tests...\ntest_foo ok");
 
         let mut daemon = Daemon::with_backend(
             &dir,
@@ -939,7 +939,7 @@ mod tests {
         ).unwrap();
 
         let mut mock = MockBackend::new();
-        mock.set_capture("cmx-st1", "stuck output that never changes");
+        mock.set_capture("skd-st1", "stuck output that never changes");
 
         let mut daemon = Daemon::with_backend(
             &dir,

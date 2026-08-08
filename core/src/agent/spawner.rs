@@ -336,7 +336,7 @@ mod tests {
         let result = SpawnResult {
             name: "w1".into(),
             success: true,
-            session: Some("cmx-main".into()),
+            session: Some("skd-main".into()),
             error: None,
             duration_ms: 250,
         };
@@ -344,7 +344,7 @@ mod tests {
         let back: SpawnResult = serde_json::from_str(&json).unwrap();
         assert_eq!(back.name, "w1");
         assert!(back.success);
-        assert_eq!(back.session, Some("cmx-main".into()));
+        assert_eq!(back.session, Some("skd-main".into()));
     }
 
     #[test]

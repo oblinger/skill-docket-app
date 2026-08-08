@@ -7,7 +7,7 @@ use ob_utils::response::Action;
 
 /// Derive the tmux session name for an agent.
 pub fn session_name(agent_name: &str) -> String {
-    format!("cmx-{}", agent_name)
+    format!("skd-{}", agent_name)
 }
 
 /// Expand logical actions into infrastructure actions.
@@ -55,8 +55,8 @@ mod tests {
 
     #[test]
     fn session_name_convention() {
-        assert_eq!(session_name("w1"), "cmx-w1");
-        assert_eq!(session_name("pm-main"), "cmx-pm-main");
+        assert_eq!(session_name("w1"), "skd-w1");
+        assert_eq!(session_name("pm-main"), "skd-pm-main");
     }
 
     #[test]
@@ -72,18 +72,18 @@ mod tests {
         assert_eq!(
             expanded[0],
             Action::CreateSession {
-                name: "cmx-w1".into(),
+                name: "skd-w1".into(),
                 cwd: "/projects/foo".into(),
             }
         );
         assert_eq!(
             expanded[1],
             Action::SendKeys {
-                target: "cmx-w1".into(),
+                target: "skd-w1".into(),
                 keys: "claude".into(),
             }
         );
-        assert_eq!(mappings, vec![("w1".into(), "cmx-w1".into())]);
+        assert_eq!(mappings, vec![("w1".into(), "skd-w1".into())]);
     }
 
     #[test]
@@ -94,7 +94,7 @@ mod tests {
         assert_eq!(expanded.len(), 1);
         assert_eq!(
             expanded[0],
-            Action::KillSession { name: "cmx-w1".into() }
+            Action::KillSession { name: "skd-w1".into() }
         );
         assert!(mappings.is_empty());
     }
